@@ -159,6 +159,89 @@ class StreamingDedupTests(unittest.TestCase):
         self.assertEqual(len(tools), 1, "only the winning record's tool_calls remain")
         self.assertEqual(tools[0]["message_uuid"], "r2")
 
+    def _parallel_tool_records(self):
+        """One API response with 3 parallel tool_use blocks, streamed as one
+        JSONL line per block (same message.id, distinct uuid)."""
+        user = {
+            "type": "user", "uuid": "u1", "sessionId": "s1",
+            "timestamp": "2026-04-10T00:00:00Z", "isSidechain": False,
+            "message": {"role": "user", "content": "hi"},
+        }
+
+        def block_line(uuid, ts, tool_id, path, out):
+            return {
+                "type": "assistant", "uuid": uuid, "parentUuid": "u1",
+                "sessionId": "s1", "timestamp": ts, "isSidechain": False,
+                "message": {
+                    "id": "msg_P", "model": "claude-opus-4-7",
+                    "content": [
+                        {"type": "tool_use", "id": tool_id, "name": "Read",
+                         "input": {"file_path": path}},
+                    ],
+                    "usage": {"input_tokens": 1, "output_tokens": out},
+                },
+            }
+
+        return [
+            user,
+            block_line("r1", "2026-04-10T00:00:01Z", "tuA", "a.py", 10),
+            block_line("r2", "2026-04-10T00:00:02Z", "tuB", "b.py", 20),
+            block_line("r3", "2026-04-10T00:00:03Z", "tuC", "c.py", 30),
+        ]
+
+    def _read_tool_rows(self):
+        with sqlite3.connect(self.db) as c:
+            c.row_factory = sqlite3.Row
+            return c.execute(
+                "SELECT message_uuid, target, tool_use_id FROM tool_calls "
+                "WHERE tool_name='Read' ORDER BY target"
+            ).fetchall()
+
+    def test_parallel_tool_use_blocks_in_one_message_all_survive(self):
+        """Sibling tool_use blocks (different tool_use ids) split across
+        streaming lines are distinct calls, not superseded snapshots."""
+        _write_jsonl(self._jsonl_path(), self._parallel_tool_records())
+
+        scan_dir(self.proj_root, self.db)
+
+        tools = self._read_tool_rows()
+        self.assertEqual([t["target"] for t in tools], ["a.py", "b.py", "c.py"])
+        self.assertEqual([t["tool_use_id"] for t in tools], ["tuA", "tuB", "tuC"])
+        # Tokens still dedupe to the final snapshot only.
+        with sqlite3.connect(self.db) as c:
+            msgs = c.execute(
+                "SELECT uuid, output_tokens FROM messages WHERE type='assistant'"
+            ).fetchall()
+        self.assertEqual(msgs, [("r3", 30)])
+        # Every surviving call hangs off the surviving message row.
+        self.assertEqual({t["message_uuid"] for t in tools}, {"r3"})
+
+    def test_parallel_tool_use_blocks_survive_incremental_scan(self):
+        """Blocks arriving in later scans must not delete earlier siblings."""
+        recs = self._parallel_tool_records()
+        _write_jsonl(self._jsonl_path(), recs[:3])
+        scan_dir(self.proj_root, self.db)
+
+        import json as _json
+        with open(self._jsonl_path(), "a", encoding="utf-8") as f:
+            f.write(_json.dumps(recs[3]) + "\n")
+        scan_dir(self.proj_root, self.db)
+
+        self.assertEqual([t["target"] for t in self._read_tool_rows()],
+                         ["a.py", "b.py", "c.py"])
+
+    def test_parallel_tool_use_full_rescan_is_idempotent(self):
+        """Replaying the whole file (e.g. after a migration) must not
+        duplicate or drop sibling tool calls."""
+        _write_jsonl(self._jsonl_path(), self._parallel_tool_records())
+        scan_dir(self.proj_root, self.db)
+        with sqlite3.connect(self.db) as c:
+            c.execute("DELETE FROM files")
+        scan_dir(self.proj_root, self.db)
+
+        self.assertEqual([t["target"] for t in self._read_tool_rows()],
+                         ["a.py", "b.py", "c.py"])
+
     def test_assistant_without_message_id_falls_back_to_uuid(self):
         """No message.id → behave as before: each uuid is its own row."""
         recs = [

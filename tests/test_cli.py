@@ -38,6 +38,62 @@ class CliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("all time", r.stdout)
 
+    def _run_isolated(self, *args):
+        """Run the CLI with HOME in a temp dir and no path env vars.
+
+        If a --db/--projects-dir flag is ignored, the default path resolves
+        inside the temp HOME, never the real ~/.claude.
+        """
+        home = os.path.join(self.tmp, "home")
+        os.makedirs(home, exist_ok=True)
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("TOKEN_DASHBOARD_DB", "CLAUDE_PROJECTS_DIR")}
+        env.update(HOME=home, USERPROFILE=home)
+        r = subprocess.run([sys.executable, "cli.py", *args],
+                           cwd=ROOT, env=env, capture_output=True, text=True)
+        return r, os.path.join(home, ".claude", "token-dashboard.db")
+
+    def _scanned_messages(self, db):
+        import sqlite3
+        with sqlite3.connect(db) as c:
+            return c.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+
+    def test_flags_before_subcommand_are_honoured(self):
+        r, default_db = self._run_isolated("--db", self.db, "--projects-dir", self.proj, "scan")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._scanned_messages(self.db), 2)
+        self.assertFalse(os.path.exists(default_db), "must not fall back to the default DB")
+
+    def test_flags_after_subcommand_are_honoured(self):
+        r, default_db = self._run_isolated("scan", "--db", self.db, "--projects-dir", self.proj)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._scanned_messages(self.db), 2)
+        self.assertFalse(os.path.exists(default_db))
+
+    def test_flags_split_around_subcommand_are_honoured(self):
+        r, default_db = self._run_isolated("--db", self.db, "scan", "--projects-dir", self.proj)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._scanned_messages(self.db), 2)
+        self.assertFalse(os.path.exists(default_db))
+
+    def test_flag_after_subcommand_wins_over_flag_before(self):
+        wrong = os.path.join(self.tmp, "wrong.db")
+        r, _ = self._run_isolated("--db", wrong, "scan", "--db", self.db, "--projects-dir", self.proj)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._scanned_messages(self.db), 2)
+        self.assertFalse(os.path.exists(wrong))
+
+    def test_flags_before_dashboard_subcommand_are_parsed(self):
+        # Parser-level check: starting a server here would need a free port.
+        sys.path.insert(0, ROOT)
+        try:
+            import cli
+            args = cli.build_parser().parse_args(
+                ["--db", "/x.db", "--projects-dir", "/p", "dashboard", "--no-open"])
+        finally:
+            sys.path.remove(ROOT)
+        self.assertEqual((args.db, args.projects_dir, args.no_open), ("/x.db", "/p", True))
+
     def test_tips_runs_without_data(self):
         r = self._run("tips")
         self.assertEqual(r.returncode, 0, r.stderr)

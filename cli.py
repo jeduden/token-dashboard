@@ -73,8 +73,6 @@ def cmd_tips(args):
 def cmd_dashboard(args):
     db = _db_path(args)
     init_db(db)
-    if not args.no_scan:
-        scan_dir(_projects(args), db)
     from token_dashboard.server import run
 
     host = os.environ.get("HOST", "127.0.0.1")
@@ -83,25 +81,41 @@ def cmd_dashboard(args):
     if not args.no_open:
         webbrowser.open(url)
     print(f"Token Dashboard listening on {url}")
-    run(host, port, db, _projects(args))
+    run(host, port, db, _projects(args), scan=not args.no_scan)
 
 
-def main():
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--db", help="SQLite path (default ~/.claude/token-dashboard.db)")
-    common.add_argument("--projects-dir", help="JSONL root (default ~/.claude/projects)")
+def _common_flags(suppress: bool) -> argparse.ArgumentParser:
+    """Shared --db/--projects-dir flags.
 
-    p = argparse.ArgumentParser(prog="token-dashboard", description="Local Claude Code usage dashboard", parents=[common])
+    The subcommands re-declare these so they also work after the subcommand.
+    Their copies must default to SUPPRESS: otherwise an unset subcommand flag
+    overwrites a value given before the subcommand with None, silently
+    falling back to the default (live) database.
+    """
+    kw = {"default": argparse.SUPPRESS} if suppress else {}
+    c = argparse.ArgumentParser(add_help=False)
+    c.add_argument("--db", help="SQLite path (default ~/.claude/token-dashboard.db)", **kw)
+    c.add_argument("--projects-dir", help="JSONL root (default ~/.claude/projects)", **kw)
+    return c
+
+
+def build_parser() -> argparse.ArgumentParser:
+    top, sub_flags = _common_flags(False), _common_flags(True)
+    p = argparse.ArgumentParser(prog="token-dashboard", description="Local Claude Code usage dashboard", parents=[top])
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("scan",  parents=[common]).set_defaults(func=cmd_scan)
-    sub.add_parser("today", parents=[common]).set_defaults(func=cmd_today)
-    sub.add_parser("stats", parents=[common]).set_defaults(func=cmd_stats)
-    sub.add_parser("tips",  parents=[common]).set_defaults(func=cmd_tips)
-    d = sub.add_parser("dashboard", parents=[common])
+    sub.add_parser("scan",  parents=[sub_flags]).set_defaults(func=cmd_scan)
+    sub.add_parser("today", parents=[sub_flags]).set_defaults(func=cmd_today)
+    sub.add_parser("stats", parents=[sub_flags]).set_defaults(func=cmd_stats)
+    sub.add_parser("tips",  parents=[sub_flags]).set_defaults(func=cmd_tips)
+    d = sub.add_parser("dashboard", parents=[sub_flags])
     d.add_argument("--no-scan", action="store_true")
     d.add_argument("--no-open", action="store_true")
     d.set_defaults(func=cmd_dashboard)
-    args = p.parse_args()
+    return p
+
+
+def main():
+    args = build_parser().parse_args()
     args.func(args)
 
 

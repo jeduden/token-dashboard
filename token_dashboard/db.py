@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Union
 
+DB_TIMEOUT_S = 10.0  # wait this long on a locked db before OperationalError
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
   path        TEXT PRIMARY KEY,
@@ -57,11 +59,15 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   target        TEXT,
   result_tokens INTEGER,
   is_error      INTEGER NOT NULL DEFAULT 0,
-  timestamp     TEXT    NOT NULL
+  timestamp     TEXT    NOT NULL,
+  tool_use_id   TEXT,
+  result_chars  INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_tools_session ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_tools_name    ON tool_calls(tool_name);
 CREATE INDEX IF NOT EXISTS idx_tools_target  ON tool_calls(target);
+CREATE INDEX IF NOT EXISTS idx_tools_use_id  ON tool_calls(session_id, tool_use_id);
+CREATE INDEX IF NOT EXISTS idx_tools_msg     ON tool_calls(message_uuid);
 
 CREATE TABLE IF NOT EXISTS plan (
   k TEXT PRIMARY KEY,
@@ -82,9 +88,16 @@ def default_db_path() -> Path:
 def init_db(path: Union[str, Path]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as c:
+    c = sqlite3.connect(path, timeout=DB_TIMEOUT_S)
+    try:
+        c.execute(f"PRAGMA busy_timeout = {int(DB_TIMEOUT_S * 1000)}")
+        c.execute("PRAGMA journal_mode = WAL")  # persisted in the db file
         _migrate_add_message_id(c)
+        _migrate_add_tool_use_id(c)
         c.executescript(SCHEMA)
+        c.commit()
+    finally:
+        c.close()
 
 
 def _migrate_add_message_id(conn) -> None:
@@ -110,10 +123,38 @@ def _migrate_add_message_id(conn) -> None:
     conn.commit()
 
 
+def _migrate_add_tool_use_id(conn) -> None:
+    """Add tool_calls.tool_use_id / result_chars for per-call cost attribution.
+
+    Idempotent. If the table exists without the columns, add them and clear
+    messages/tool_calls/files so the next scan replays the JSONLs (old rows
+    cannot be linked retroactively). Analytics treat NULL tool_use_id as
+    "unattributed" while the rescan is in progress.
+    """
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tool_calls'"
+    ).fetchone()
+    if not has_table:
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tool_calls)")}
+    if "tool_use_id" in cols and "result_chars" in cols:
+        return
+    for name, decl in (("tool_use_id", "TEXT"), ("result_chars", "INTEGER")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE tool_calls ADD COLUMN {name} {decl}")
+    conn.execute("DELETE FROM messages")
+    conn.execute("DELETE FROM tool_calls")
+    conn.execute("DELETE FROM files")
+    conn.commit()
+
+
 @contextmanager
 def connect(path: Union[str, Path]):
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=DB_TIMEOUT_S)
     conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout = {int(DB_TIMEOUT_S * 1000)}")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
