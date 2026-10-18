@@ -12,14 +12,23 @@ of its thread (session + agent_id):
   of the tier last written, and the turn's usage shows the prefix was written
   again). After a re-write the result continues to be carried at the read rate.
 
-The carry/expiry run ends at the first detected compaction: cache reads dropping
-below COMPACTION_DROP_RATIO of the previous turn from at least COMPACTION_MIN_PREV_READ
-tokens. An expiry also makes reads drop to ~0, so a TTL-expiry turn only counts as a
-compaction when the prompt itself shrank below that ratio of the previous prompt.
+The carry/expiry run ends at the next compaction. Where the session has recorded
+``compact_boundary`` events (``compactions`` table) those are the cutoff: an event at
+time T is mapped to the first assistant turn after T of its own thread (the main
+thread, or the sub-agent named by the event; one thread's event never cuts another),
+and that turn is a compaction, whether or not it also looks like an expiry. Only a
+session with no recorded events at all falls back to the heuristic: cache reads
+dropping below COMPACTION_DROP_RATIO of the previous turn from at least
+COMPACTION_MIN_PREV_READ tokens (an expiry zeroes reads too, so a TTL-expiry turn is
+a heuristic compaction only when the prompt itself shrank below that ratio).
+Each turn carries ``comp``: None, or the reason (``compaction_auto`` /
+``compaction_manual`` / ``compaction_event`` / ``compaction_detected``).
 
 All O(1) per result through prefix sums built once per thread.
 """
 from __future__ import annotations
+
+from bisect import bisect_right
 
 from .cache_events import ThreadTracker, epoch
 from .pricing import cost_for
@@ -50,8 +59,28 @@ def write_rate(c5, c1, r5, r1, tier=None) -> float:
     return r1 if tier == "1h" else r5
 
 
-def load_thread(conn, pricing, memo, session_id, agent_id):
-    """Ordered assistant turns of one thread with per-turn rates, cost and expiry verdict."""
+def session_events(conn, session_id):
+    """Recorded compactions of a session as [(epoch_s, trigger, agent_id, is_sidechain)]."""
+    return [(epoch(r[0]), r[1], r[2] or "", r[3]) for r in conn.execute(
+        "SELECT timestamp, trigger, agent_id, is_sidechain FROM compactions "
+        "WHERE session_id=? ORDER BY timestamp", (session_id,)) if epoch(r[0]) is not None]
+
+
+def _mark_events(turns, tstamps, events, agent_id):
+    """Flag, per event of this thread, the first turn after it as a compaction."""
+    for ts, trigger, ag, side in events:
+        if ag != agent_id or (not agent_id and side):     # sidechain event with no agent: no thread
+            continue
+        i = bisect_right(tstamps, ts)
+        if i < len(turns) and not turns[i]["comp"]:
+            turns[i]["comp"] = "compaction_" + trigger if trigger in ("auto", "manual") else "compaction_event"
+
+
+def load_thread(conn, pricing, memo, session_id, agent_id, events=None):
+    """Ordered assistant turns of one thread with per-turn rates, cost and expiry verdict.
+
+    ``events`` (from ``session_events``) is fetched when omitted.
+    """
     turns, index = [], {}
     sql = """
       SELECT uuid, timestamp, model, input_tokens, output_tokens, cache_read_tokens,
@@ -61,6 +90,7 @@ def load_thread(conn, pricing, memo, session_id, agent_id):
        ORDER BY timestamp, rowid
     """
     tracker = ThreadTracker()
+    tstamps, last_ts = [], 0.0
     for r in conn.execute(sql, (session_id, agent_id)):
         rd, r5, r1, ri, ro = rates(r["model"], pricing, memo)
         c5, c1 = r["cache_create_5m_tokens"], r["cache_create_1h_tokens"]
@@ -72,11 +102,28 @@ def load_thread(conn, pricing, memo, session_id, agent_id):
                       "create": write_rate(c5, c1, r5, r1, st.tier),
                       "usd": usd, "cr": cr, "model": r["model"],
                       "cc": c5 + c1, "ctx": st.ctx, "prev_ctx": st.prev_ctx,
-                      "expired": st.expired, "tier": st.tier, "gap_s": st.gap_s or 0.0})
+                      "expired": st.expired, "tier": st.tier, "gap_s": st.gap_s or 0.0, "comp": None})
+        last_ts = epoch(r["timestamp"] or "") or last_ts
+        tstamps.append(last_ts)
+    if events is None:
+        events = session_events(conn, session_id)
+    if events:
+        _mark_events(turns, tstamps, events, agent_id)
+    else:
+        for i in range(1, len(turns)):
+            if _heuristic_compaction(turns, i):
+                turns[i]["comp"] = "compaction_detected"
     return turns, index
 
 
 def is_compaction(turns, i) -> bool:
+    """Turn ``i`` starts a new context: a recorded event, or (no events in the session) the heuristic."""
+    if "comp" in turns[i]:
+        return bool(turns[i]["comp"])
+    return _heuristic_compaction(turns, i)
+
+
+def _heuristic_compaction(turns, i) -> bool:
     if i <= 0:
         return False
     p, t = turns[i - 1], turns[i]

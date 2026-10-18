@@ -38,7 +38,7 @@ from typing import Dict, Optional
 from .db import connect, _range_clause
 from . import cost_diagnostics as dx
 from .cost_model import (COMPACTION_DROP_RATIO, COMPACTION_MIN_PREV_READ,  # noqa: F401 (re-exported)
-                         Tables, cost_of, load_thread)
+                         Tables, cost_of, load_thread, session_events)
 
 # --- assumptions (named so they can be tuned/tested) -----------------------
 SKILL_ESTIMATE_CAP = 60_000       # max tokens an estimated skill load can claim
@@ -81,6 +81,7 @@ class _Agg:
         self.total_calls = 0
         self.rereads: list = []
         self.big: Dict[str, dict] = {}
+        self.sources: set = set()      # "events" / "heuristic" per processed thread
 
     def add(self, c):
         self.total_calls += 1
@@ -141,7 +142,10 @@ def _percentile(sorted_vals, p):
 
 
 def _process_thread(conn, pricing, memo, catalog, sid, aid, since, until, agg):
-    turns, index = load_thread(conn, pricing, memo, sid, aid)
+    events = session_events(conn, sid)
+    if hasattr(agg, "sources"):
+        agg.sources.add("events" if events else "heuristic")
+    turns, index = load_thread(conn, pricing, memo, sid, aid, events)
     tables = Tables(turns)
     thread_usd = sum(t["usd"] for t in turns)
     rows = _tool_rows(conn, sid, aid)
@@ -227,8 +231,12 @@ def analyze(db_path, pricing, since=None, until=None, catalog=None,
 
 
 def _meta(agg) -> dict:
+    src = getattr(agg, "sources", None) or {"heuristic"}
     return {"total_calls": agg.total_calls, "unattributed_calls": agg.unattributed,
             "estimated": True,
+            # where the carry cutoff came from: recorded compact_boundary events, the
+            # cache-read heuristic (sessions scanned before events were stored), or both
+            "compaction_source": "mixed" if len(src) > 1 else next(iter(src)),
             "note": ("Estimates: tokens=chars/4; create cost once at next turn, carry cost "
                      "at cache-read rate until session end or detected compaction, expiry cost = "
                      "re-write at the cache-write rate after an idle gap longer than the cache lifetime. "

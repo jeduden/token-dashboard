@@ -142,6 +142,7 @@ class _Collector:
         self.time = dm.TimeSeries()
         self.rows: dict = {}
         self.truncated = False
+        self.sources: set = set()
         self.total_calls = 0
         self.unattributed = 0
         self.usd = self.carry = self.expiry = 0.0

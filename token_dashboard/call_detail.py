@@ -52,6 +52,7 @@ class _Collect:
 
     def __init__(self):
         self.calls = []
+        self.sources = set()
 
     def add(self, c):
         self.calls.append(c)
@@ -140,7 +141,7 @@ def _timeline(call, turns, uuid, now):
 
 def _end_reason(turns, end, n, k, now, first_carry=True):
     if end < n:
-        return {"reason": "compaction_detected", "turn_offset": end - k, "timestamp": turns[end]["ts"]}
+        return {"reason": turns[end].get("comp") or "compaction_detected", "turn_offset": end - k, "timestamp": turns[end]["ts"]}
     last = _parse_ts(turns[-1]["ts"]) if turns else None
     if last is not None and _now_ts(now) - last < ONGOING_SECONDS:
         return {"reason": "ongoing", "turn_offset": None, "timestamp": turns[-1]["ts"]}
@@ -242,10 +243,11 @@ def call_detail(db_path, pricing, call_id, catalog=None, now=None) -> dict:
         project, repo, repo_name = _project(conn, row["project_slug"], sid)
     session_calls = [c for col in by_thread.values() for c in col.calls]
     return _assemble(row, res, call, by_thread[aid].calls, session_calls,
-                     (create_turn, timeline, end), tp, (project, repo, repo_name))
+                     (create_turn, timeline, end), tp, (project, repo, repo_name),
+                     set().union(*(c.sources for c in by_thread.values())))
 
 
-def _assemble(row, res, call, thread, session_calls, tl, tp, proj):
+def _assemble(row, res, call, thread, session_calls, tl, tp, proj, sources=()):
     create_turn, timeline, end = tl
     sid = row["session_id"]
     mu = row["message_uuid"]
@@ -286,11 +288,13 @@ def _assemble(row, res, call, thread, session_calls, tl, tp, proj):
         "same_target": _same_target(tp, call),
         "diagnostics": _diagnostics(call),
         "session_link": sid,
-        "meta": {"estimated": True, "note": ci._meta(_MetaStub(session_calls))["note"]},
+        "meta": {"estimated": True, "note": ci._meta(_MetaStub(session_calls))["note"],
+                 "compaction_source": ci._meta(_MetaStub(session_calls, sources))["compaction_source"]},
     }
 
 
 class _MetaStub:
-    def __init__(self, calls):
+    def __init__(self, calls, sources=()):
+        self.sources = set(sources)
         self.total_calls = len(calls)
         self.unattributed = sum(1 for c in calls if not c["attributed"])

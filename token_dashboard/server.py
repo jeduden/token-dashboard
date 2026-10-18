@@ -24,6 +24,7 @@ from .scan_state import get_status, run_scan
 from .skills import cached_catalog
 from .cost_insights import tool_costs, skill_costs, top_calls
 from .cache_insights import cache_report
+from .compaction_insights import compactions_report
 from .cost_drilldown import tool_params
 from .skill_drilldown import skill_detail
 from .call_detail import call_detail, NotFound
@@ -163,6 +164,8 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, rows)
             if path == "/api/cache":
                 return _send_json(self, cache_report(db_path, pricing, since, until))
+            if path == "/api/compactions":
+                return _send_json(self, compactions_report(db_path, pricing, since, until))
             if path == "/api/by-model":
                 rows = model_breakdown(db_path, since, until)
                 for r in rows:

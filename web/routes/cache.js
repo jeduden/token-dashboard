@@ -59,6 +59,7 @@ function gapsCard(g) {
     <p class="muted" style="margin:-4px 0 10px;font-size:12px">Estimated waste (USD) by how long the thread was idle before the turn that had to write the cache again.</p>
     ${any ? '<div id="ch-cache-gaps" style="height:220px" role="img" aria-label="Estimated waste in USD by idle gap before cache expiry"></div>' : ''}
     <p style="margin:10px 0 0">${fmt.htmlSafe(gapSentence(g))}</p>
+    <p class="muted" style="margin:6px 0 0;font-size:12px">Compactions that start after a long idle gap pay the same price: see the <a href="#/compactions">Compactions</a> tab.</p>
     ${whatIf(g.what_if_1h)}
   </div>`;
 }

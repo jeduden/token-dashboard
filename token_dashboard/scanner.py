@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 from .db import connect
+from .compaction_parse import store_compaction
 
 
 CHECKPOINT_BYTES = 8 * 1024 * 1024
@@ -58,7 +59,8 @@ def _usage(rec: dict) -> dict:
 
 
 def _prompt_text(rec: dict) -> Tuple[Optional[str], Optional[int]]:
-    if rec.get("type") != "user":
+    if rec.get("type") != "user" or rec.get("isCompactSummary"):
+        # The compaction summary is Claude's own text, not a prompt: never stored.
         return None, None
     content = (rec.get("message") or {}).get("content")
     if isinstance(content, str):
@@ -264,6 +266,8 @@ def scan_file(path: Path, project_slug: str, conn, start_byte: int = 0,
             if not msg["session_id"] or not msg["timestamp"]:
                 end_offset = line_end
                 continue
+            if rec.get("type") == "system":
+                store_compaction(conn, rec, project_slug)
             call_ids = [t["tool_use_id"] for t in tlist if t.get("tool_use_id")]
             if msg["message_id"]:
                 _evict_prior_snapshots(conn, msg["session_id"], msg["message_id"],

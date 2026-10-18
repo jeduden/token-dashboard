@@ -94,6 +94,7 @@ class _Collector:
         self.skill, self.fn = skill, _KEY[mode]
         self.rows: dict = {}
         self.truncated = False
+        self.sources: set = set()
         self.total_calls = 0
         self.unattributed = 0
         self.big: dict = {}

@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Union
 
+from .schema_compactions import ensure_compactions
+
 DB_TIMEOUT_S = 10.0  # wait this long on a locked db before OperationalError
 
 SCHEMA = """
@@ -95,6 +97,7 @@ def init_db(path: Union[str, Path]) -> None:
         _migrate_add_message_id(c)
         _migrate_add_tool_use_id(c)
         c.executescript(SCHEMA)
+        ensure_compactions(c)   # compactions table + one-time replay marker
         c.commit()
     finally:
         c.close()
