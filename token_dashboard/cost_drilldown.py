@@ -144,7 +144,8 @@ class _Collector:
         self.truncated = False
         self.total_calls = 0
         self.unattributed = 0
-        self.usd = self.carry = 0.0
+        self.usd = self.carry = self.expiry = 0.0
+        self.expiry_events = 0
         self.big: dict = {}
         self.rereads: list = []
         self.rep_calls = 0
@@ -168,6 +169,8 @@ class _Collector:
             self.sessions += 1
         self.usd += c["usd"]
         self.carry += c["carry_usd"]
+        self.expiry += c["expiry_usd"]
+        self.expiry_events += c["expiry_events"]
         dx.note_big_output(self.big, c)
         tgt = g_target(c["target"])
         repeat = tgt in self._seen
@@ -183,12 +186,13 @@ class _Collector:
                 key = OTHER_KEY
                 a = self.rows.get(key)
             if a is None:
-                a = self.rows[key] = {"calls": 0, "usd": 0.0, "carry": 0.0, "tok": 0, "tok_max": 0,
+                a = self.rows[key] = {"calls": 0, "usd": 0.0, "carry": 0.0, "expiry": 0.0, "tok": 0, "tok_max": 0,
                                       "errors": 0, "sessions": 0, "sid": None, "first": None,
                                       "last": None, "rep": 0, "rep_usd": 0.0}
         a["calls"] += 1
         a["usd"] += c["usd"]
         a["carry"] += c["carry_usd"]
+        a["expiry"] += c["expiry_usd"]
         rt = c["result_tokens"] or 0
         a["tok"] += rt
         a["tok_max"] = max(a["tok_max"], rt)
@@ -297,6 +301,8 @@ def tool_params(db_path, pricing, tool, since=None, until=None, limit=50, group=
             "key": k, **(col.ctx.describe(k) if col.ctx else {}), "calls": a["calls"],
             "share_of_tool_cost": round(a["usd"] / col.usd, 4) if col.usd else 0.0,
             "est_cost_usd": round(a["usd"], 6), "carry_cost_usd": round(a["carry"], 6),
+            "expiry_cost_usd": round(a["expiry"], 6),
+            "expiry_share": round(a["expiry"] / a["usd"], 4) if a["usd"] else 0.0,
             "cost_per_call": round(cpc, 6),
             "avg_result_tokens": round(a["tok"] / a["calls"], 1), "max_result_tokens": a["tok_max"],
             "error_rate": round(a["errors"] / a["calls"], 4),
@@ -311,10 +317,13 @@ def tool_params(db_path, pricing, tool, since=None, until=None, limit=50, group=
         "calls": col.total_calls, "attributed_calls": attributed,
         "unattributed_calls": col.unattributed, "sessions": col.sessions,
         "est_cost_usd": round(col.usd, 6), "carry_cost_usd": round(col.carry, 6),
-        "create_cost_usd": round(col.usd - col.carry, 6),
+        "create_cost_usd": round(col.usd - col.carry - col.expiry, 6),
+        "expiry_cost_usd": round(col.expiry, 6), "expiry_events": col.expiry_events,
+        "expiry_share": round(col.expiry / col.usd, 4) if col.usd else 0.0,
         "error_rate": round(errors / attributed, 4) if attributed else None,
     }
-    diag_row = {"tool_name": tool, "error_rate": totals["error_rate"], "attributed_calls": attributed}
+    diag_row = {"tool_name": tool, "error_rate": totals["error_rate"], "attributed_calls": attributed,
+                "est_cost_usd": col.usd, "expiry_cost_usd": col.expiry, "expiry_events": col.expiry_events}
     return {
         "tool": tool, "group": mode, "available_groups": available_groups(tool),
         "totals": totals, "distinct_keys": len(col.rows), "truncated": col.truncated,

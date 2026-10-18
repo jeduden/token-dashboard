@@ -70,7 +70,8 @@ def skill_rules(skill, t, avg_carry_turns, repeat, cmp, top_session) -> list:
             "Install it under ~/.claude/skills, scheduled-tasks or plugins to get an exact size."))
     out.extend(dict(d, suggestion=d.get("suggestion") or "") for d in dx.skill_diagnostics([{
         "skill": skill, "est_cost_usd": usd, "sessions": t["sessions"],
-        "carry_cost_usd": t["carry_cost_usd"]}]))
+        "carry_cost_usd": t["carry_cost_usd"], "expiry_cost_usd": t["expiry_cost_usd"],
+        "expiry_events": t["expiry_events"]}]))
     for d in out:
         if d["rule"] == "skill_carry":
             d["suggestion"] = "Consider a smaller SKILL.md or invoking it later in the session."

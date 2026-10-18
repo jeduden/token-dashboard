@@ -29,6 +29,40 @@ function writeRange(key) {
   location.hash = '#' + base + '?range=' + encodeURIComponent(key);
 }
 
+function gapSentence(g) {
+  const n = g.buckets.reduce((a, b) => a + b.turns, 0);
+  if (!n) return 'No cache expiries in this range.';
+  const usd = g.buckets.reduce((a, b) => a + b.wasted_usd, 0);
+  const short = g.buckets.filter(b => ['5_10m', '10_30m', '30_60m'].includes(b.key)).reduce((a, b) => a + b.turns, 0);
+  const t5 = g.by_tier['5m'] || { turns: 0, wasted_usd: 0 };
+  const t1 = g.by_tier['1h'] || { turns: 0, wasted_usd: 0 };
+  return `${fmt.int(n)} turn(s) re-wrote the cache after it expired (about ${fmt.usd(usd)} extra); `
+    + `${fmt.int(short)} of them (${fmt.pct(short / n)}) followed an idle gap shorter than an hour, `
+    + 'which a keep-alive or the 1h cache could have bridged. '
+    + `${fmt.int(t5.turns)} were 5-minute expiries (${fmt.usd(t5.wasted_usd)}) and ${fmt.int(t1.turns)} were 1-hour expiries (${fmt.usd(t1.wasted_usd)}).`;
+}
+
+function whatIf(w) {
+  if (!w || !w.expiries) return '';
+  const verdict = w.net_usd > 0 ? 'would have saved about ' + fmt.usd(w.net_usd)
+    : 'would not have paid off (net ' + fmt.usd(w.net_usd) + ')';
+  return `<p style="margin:10px 0 0"><b>What would the 1h cache change?</b> Writing every prompt with the 1h cache
+    would have turned ${fmt.int(w.expiries)} of the 5-minute expiries into reads (${fmt.usd(w.recoverable_usd)}),
+    but costs ${fmt.usd(w.extra_write_cost_usd)} more in write premium: it ${verdict}.
+    <span class="muted">${fmt.htmlSafe(w.note)}</span></p>`;
+}
+
+function gapsCard(g) {
+  const any = g.buckets.some(b => b.turns > 0);
+  return `<div class="card" style="margin-top:16px">
+    <h3>Idle gap before expired turns</h3>
+    <p class="muted" style="margin:-4px 0 10px;font-size:12px">Estimated waste (USD) by how long the thread was idle before the turn that had to write the cache again.</p>
+    ${any ? '<div id="ch-cache-gaps" style="height:220px" role="img" aria-label="Estimated waste in USD by idle gap before cache expiry"></div>' : ''}
+    <p style="margin:10px 0 0">${fmt.htmlSafe(gapSentence(g))}</p>
+    ${whatIf(g.what_if_1h)}
+  </div>`;
+}
+
 export default async function (root) {
   const range = readRange();
   const since = range.days ? new Date(Date.now() - range.days * 86400 * 1000).toISOString() : null;
@@ -44,6 +78,7 @@ export default async function (root) {
     </div>`;
 
   const causes = d.by_cause.filter(c => c.turns > 0);
+  const g = d.gaps || { buckets: [], by_tier: {}, what_if_1h: null };
   const t = d.thresholds;
 
   root.innerHTML = `
@@ -86,6 +121,8 @@ export default async function (root) {
         <div id="ch-cache-cause" style="height:260px"></div>
       </div>
     </div>
+
+    ${gapsCard(g)}
 
     <div class="card" style="margin-top:16px">
       <h3>What the causes mean</h3>
@@ -151,6 +188,14 @@ export default async function (root) {
     ],
     formatter: v => Number(v).toLocaleString() + ' tokens',
   });
+  const gb = g.buckets.filter(b => b.turns > 0);
+  if (gb.length) {
+    barChart(document.getElementById('ch-cache-gaps'), {
+      categories: g.buckets.map(b => b.label),
+      values: g.buckets.map(b => b.wasted_usd),
+      color: '#E5484D',
+    });
+  }
   barChart(document.getElementById('ch-cache-cause'), {
     categories: causes.map(c => label(c.cause)),
     values: causes.map(c => c.wasted_usd),

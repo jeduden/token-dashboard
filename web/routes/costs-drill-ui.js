@@ -22,6 +22,12 @@ export async function fetchJson(url) {
   }
 }
 
+// Shared wording for the expiry component of the cost model (tooltips / legends).
+export const EXPIRY_HELP = 'expiry = re-write after idle gap: when the thread sat idle longer than the cache lifetime '
+  + '(5 min, or 1 h for 1h writes), the next turn wrote everything carried (this content included) to the cache again '
+  + 'instead of reading it';
+export const expiryTh = (label = 'expiry') => `<th class="num" title="${esc(EXPIRY_HELP)}">${esc(label)}</th>`;
+
 let current = null;
 // One scope per render: a single resize listener for all its charts, removed (and the charts
 // disposed) on the next route change (hashchange) or when a newer scope replaces it.

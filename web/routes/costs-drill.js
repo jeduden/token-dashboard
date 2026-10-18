@@ -1,6 +1,6 @@
 // costs-drill.js — per-tool drill-down: #/costs/<tool>?range=30d&group=auto
 import { api, fmt } from '/web/app.js';
-import { fetchJson, chartScope, loadingHtml, setBusy, groupSelect, topBar, dayBars, sparkCard } from '/web/routes/costs-drill-ui.js';
+import { fetchJson, chartScope, loadingHtml, setBusy, groupSelect, topBar, dayBars, sparkCard, EXPIRY_HELP, expiryTh } from '/web/routes/costs-drill-ui.js';
 
 const SEV_COLOR = { high: '#E5484D', warn: '#F5A623', info: '#4A9EFF' };
 const Q_COLOR = { frequent_expensive: '#E5484D', frequent_cheap: '#E8A23B', rare_expensive: '#7C5CFF', rare_cheap: '#3FB68B' };
@@ -51,7 +51,9 @@ function summary(d) {
   const t = d.totals, rp = d.repeat;
   const kpi = (l, v, s) => `<div class="card kpi"><div class="label">${l}</div><div class="value">${v}</div>${s ? `<div class="sub">${s}</div>` : ''}</div>`;
   return `<div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px">
-    ${kpi('est. cost', fmt.usd(t.est_cost_usd), `carry ${fmt.usd(t.carry_cost_usd)}`)}
+    ${kpi('est. cost', fmt.usd(t.est_cost_usd), `create ${fmt.usd(t.create_cost_usd)} · carry ${fmt.usd(t.carry_cost_usd)} · expiry ${fmt.usd(t.expiry_cost_usd)}`)}
+    <div class="card kpi" title="${esc(EXPIRY_HELP)}"><div class="label">expiry</div><div class="value">${fmt.usd(t.expiry_cost_usd)}</div>
+      <div class="sub">${fmt.pct(t.expiry_share)} of cost, ${fmt.int(t.expiry_events)} re-write(s) after an idle gap</div></div>
     ${kpi('calls', fmt.int(t.calls), `${fmt.int(t.unattributed_calls)} unattributed (not ranked)`)}
     ${kpi('sessions', fmt.int(t.sessions), '')}
     ${kpi('error rate', fmt.pct(t.error_rate), '')}
@@ -70,26 +72,27 @@ function table(d, sort) {
   const th = (k, l) => `<th class="num" aria-sort="${k === sort ? 'descending' : 'none'}"><button class="sortbtn${k === sort ? ' active' : ''}" data-sort="${k}" aria-label="sort by ${l}">${l}${k === sort ? ' ▼' : ''}</button></th>`;
   const gl = (d.available_groups.find(g => g.key === d.group) || { label: d.group }).label;
   return `<table><thead><tr><th>${esc(gl)}</th>${th('calls', 'calls')}${th('est_cost_usd', 'est. cost')}
-    <th class="num">share</th><th class="num">cum.</th><th class="num">carry</th>${th('cost_per_call', 'cost / call')}
+    <th class="num">share</th><th class="num">cum.</th><th class="num">carry</th>${expiryTh()}${th('cost_per_call', 'cost / call')}
     ${th('avg_result_tokens', 'avg tok')}<th class="num">max tok</th><th class="num">err</th><th class="num">sess.</th>
     <th class="num">per sess.</th><th>first / last</th><th>quadrant</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td class="mono" style="font-size:11px;word-break:break-all" title="${esc(labelOf(r) === r.key ? r.key : labelOf(r) + ' (' + r.key + ')')}">${keyCell(r)}</td>
       <td class="num">${fmt.int(r.calls)}</td><td class="num">${fmt.usd4(r.est_cost_usd)}</td>
       <td class="num">${fmt.pct(r.share_of_tool_cost)}</td><td class="num">${fmt.pct(r.cumulative_share)}</td>
-      <td class="num">${fmt.usd4(r.carry_cost_usd)}</td><td class="num">${fmt.usd4(r.cost_per_call)}</td>
+      <td class="num">${fmt.usd4(r.carry_cost_usd)}</td>
+      <td class="num" title="${fmt.pct(r.expiry_share)} of this row's cost">${fmt.usd4(r.expiry_cost_usd)}</td><td class="num">${fmt.usd4(r.cost_per_call)}</td>
       <td class="num">${fmt.int(Math.round(r.avg_result_tokens))}</td><td class="num">${fmt.int(r.max_result_tokens)}</td>
       <td class="num">${fmt.pct(r.error_rate)}</td><td class="num">${fmt.int(r.sessions)}</td>
       <td class="num">${r.frequency_per_session}</td>
       <td class="mono">${fmt.ts(r.first_seen)}<br>${fmt.ts(r.last_seen)}</td>
       <td><span class="badge" style="color:${Q_COLOR[r.quadrant]};border-color:${Q_COLOR[r.quadrant]}">${esc(r.quadrant_label)}</span></td></tr>`).join('')
-      || '<tr><td colspan="14" class="muted">no attributed calls in this range</td></tr>'}
+      || '<tr><td colspan="15" class="muted">no attributed calls in this range</td></tr>'}
     </tbody></table>`;
 }
 
 function diags(list) {
   return `<div class="card" style="margin-top:16px"><h3>Diagnostics</h3>${list.length
     ? `<table><tbody>${list.map(x => `<tr><td style="width:70px"><span class="badge" style="color:${SEV_COLOR[x.severity] || '#888'};border-color:${SEV_COLOR[x.severity] || '#888'}">${esc(x.severity)}</span></td>
-      <td>${esc(x.text)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Nothing suspicious found.</p>'}</div>`;
+      <td>${esc(x.text)}${x.suggestion ? `<div class="muted" style="font-size:12px">Suggestion: ${esc(x.suggestion)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Nothing suspicious found.</p>'}</div>`;
 }
 
 const DIM_NOTE = {

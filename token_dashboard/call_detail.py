@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from .db import connect, best_project_name
 from . import cost_insights as ci
+from . import cost_model as cm
 from . import cost_diagnostics as dx
 from .repos import slug_repo_map
 
@@ -34,6 +35,9 @@ SUGGESTIONS = {
     "reread": "Keep the file's contents in mind (or in a note) instead of re-reading it; each read re-pays the cost.",
     "error": "A failed call still costs context; fix the cause (path, flags) before retrying.",
     "dominant_call": "Split the work or request less data; one call dominates this session's spend.",
+    "expiry_heavy": dx.EXPIRY_SUGGESTION,
+    "idle_gap": ("Compact or clear before stepping away, or finish in one sitting; with the 1h cache an "
+                 "idle gap under an hour would not have expired the cache."),
     "unattributed": "Rescan so the result is linked; until then this call is not priced.",
 }
 _cache: dict = {}
@@ -97,21 +101,6 @@ def _tool_pass(conn, db_path, pricing, catalog, tool, memo):
     return tp
 
 
-def _turns(conn, pricing, memo, sid, aid):
-    """Ordered assistant turns of the thread (same order/rates as cost_insights)."""
-    turns = []
-    for r in conn.execute("""
-        SELECT uuid, timestamp, model, input_tokens, output_tokens, cache_read_tokens,
-               cache_create_5m_tokens, cache_create_1h_tokens
-          FROM messages
-         WHERE session_id=? AND COALESCE(agent_id,'')=? AND type='assistant'
-         ORDER BY timestamp, rowid""", (sid, aid)):
-        rd, cr = ci._rates(r["model"], pricing, memo)
-        turns.append({"uuid": r["uuid"], "ts": r["timestamp"], "model": r["model"], "read": rd,
-                      "create": cr, "cr": r["cache_read_tokens"]})
-    return turns
-
-
 def _parse_ts(s):
     try:
         return datetime.fromisoformat((s or "").replace("Z", "+00:00")).timestamp()
@@ -137,13 +126,14 @@ def _timeline(call, turns, uuid, now):
     ct = turns[k + 1]
     create = tokens * ct["create"]
     create_turn = {"turn_offset": 1, "timestamp": ct["ts"], "model": ct["model"], "cost_usd": create}
-    prefix, nxt = ci._carry_tables(turns)
-    end = nxt[k + 2] if k + 2 < n else n
+    end = cm.Tables(turns).nxt[k + 2] if k + 2 < n else n
     timeline, cum = [], create
     for i in range(k + 2, end):
-        add = tokens * turns[i]["read"]
+        rewrite = cm.is_expiry(turns, i)
+        add = tokens * (turns[i]["create"] if rewrite else turns[i]["read"])
         cum += add
         timeline.append({"turn_offset": i - k, "timestamp": turns[i]["ts"], "model": turns[i]["model"],
+                         "kind": "rewrite" if rewrite else "read", "gap_s": round(turns[i]["gap_s"], 1),
                          "cost_usd": add, "cumulative_usd": cum})
     return create_turn, timeline, _end_reason(turns, end, n, k, now)
 
@@ -197,7 +187,19 @@ def _diagnostics(call):
         flags.append({"rule": "unattributed", "severity": "info",
                       "text": "This call has no linked result, so its cost cannot be estimated.",
                       "evidence": {}})
-    return [dict(f, suggestion=SUGGESTIONS.get(f["rule"], "")) for f in flags]
+    if call["expiry_events"]:
+        flags.append({"rule": "idle_gap", "severity": "info",
+                      "text": (f"The thread sat idle past the cache lifetime {call['expiry_events']} time(s) while this "
+                               f"result was in context (total idle {_fmt_gap(call['expiry_gap_s'])}); "
+                               "each time it was written to the cache again."),
+                      "evidence": {"expiry_events": call["expiry_events"],
+                                   "expiry_gap_total_s": round(call["expiry_gap_s"], 1),
+                                   "expiry_cost_usd": round(call["expiry_usd"], 6)}})
+    return [dict(f, suggestion=f.get("suggestion") or SUGGESTIONS.get(f["rule"], "")) for f in flags]
+
+
+def _fmt_gap(s):
+    return "%d min" % round(s / 60) if s < 7200 else "%.1f h" % (s / 3600)
 
 
 def _project(conn, slug, sid):
@@ -234,7 +236,7 @@ def call_detail(db_path, pricing, call_id, catalog=None, now=None) -> dict:
         if not mine:                       # call whose message row is missing: nothing to price
             raise NotFound("tool call %d has no assistant message to price" % call_id)
         call = mine[0]
-        turns = _turns(conn, pricing, memo, sid, aid)
+        turns, _ = cm.load_thread(conn, pricing, memo, sid, aid)
         create_turn, timeline, end = _timeline(call, turns, row["message_uuid"], now)
         tp = _tool_pass(conn, db_path, pricing, catalog, row["tool_name"], memo)
         project, repo, repo_name = _project(conn, row["project_slug"], sid)
@@ -270,6 +272,8 @@ def _assemble(row, res, call, thread, session_calls, tl, tp, proj):
         "cost": {
             "est_cost_usd": round(usd, 6), "create_cost_usd": round(call["create_usd"], 6),
             "carry_cost_usd": round(call["carry_usd"], 6), "carry_turns": call["carry_turns"],
+            "expiry_cost_usd": round(call["expiry_usd"], 6), "expiry_events": call["expiry_events"],
+            "expiry_gap_total_s": round(call["expiry_gap_s"], 1),
             "rank": rank, "rank_of": rank_of, "percentile": pct,
             "share_of_session_cost": round(usd / session_total, 4) if session_total else None,
             "share_of_thread_spend": round(usd / thread_usd, 4) if thread_usd else None,

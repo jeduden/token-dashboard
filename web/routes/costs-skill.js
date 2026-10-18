@@ -1,11 +1,12 @@
 // costs-skill.js — per-skill drill-down: #/costs/skill/<name>?range=30d&group=project
 import { fmt } from '/web/app.js';
+import { expiryTh } from '/web/routes/costs-drill-ui.js';
 
 const SEV_COLOR = { high: '#E5484D', warn: '#F5A623', info: '#4A9EFF' };
 const esc = fmt.htmlSafe;
 const COLS = [
   ['est_cost_usd', 'est. cost'], ['invocations', 'invocations'], ['cost_per_invocation', 'cost / invocation'],
-  ['avg_carry_turns', 'avg carry turns'], ['load_cost_usd', 'load'], ['carry_cost_usd', 'carry'],
+  ['avg_carry_turns', 'avg carry turns'], ['load_cost_usd', 'load'], ['carry_cost_usd', 'carry'], ['expiry_cost_usd', 'expiry'],
 ];
 
 function param(name) {
@@ -59,7 +60,8 @@ function summary(d) {
     ${kpi('sessions', fmt.int(t.sessions), `first ${esc(fmt.ts(t.first_used))}<br>last ${esc(fmt.ts(t.last_used))}`)}
     ${kpi('est. cost', fmt.usd(t.est_cost_usd), `rank ${t.rank} of ${t.skills_total}, ${fmt.pct(t.cost_percentile)} percentile` + (t.vs_average == null ? '' : `, ${t.vs_average}x avg skill`))}
     ${kpi('cost / invocation', fmt.usd4(t.cost_per_invocation), `avg ${fmt.int(Math.round(d.avg_carry_turns))} carry turns`)}
-    ${kpi('load vs carry', `${fmt.usd(t.load_cost_usd)} / ${fmt.usd(t.carry_cost_usd)}`, loadShare == null ? '' : `${fmt.pct(loadShare)} load, ${fmt.pct(1 - loadShare)} carry`)}
+    ${kpi('load / carry / expiry', `${fmt.usd(t.load_cost_usd)} / ${fmt.usd(t.carry_cost_usd)} / ${fmt.usd(t.expiry_cost_usd)}`,
+      `${fmt.pct(loadShare)} load, ${fmt.pct(t.est_cost_usd ? t.carry_cost_usd / t.est_cost_usd : null)} carry, ${fmt.pct(t.expiry_share)} expiry (re-write after idle gap, ${fmt.int(t.expiry_events)}x)`)}
     ${kpi('load size', `${fmt.int(t.est_load_tokens)}${t.estimated ? '~' : ''} tok`, (t.estimated ? 'estimated; ' : '') + cat)}
   </div>`;
 }
@@ -78,33 +80,34 @@ function table(d, sort, asc) {
       <td class="num">${fmt.usd4(r.est_cost_usd)}</td><td class="num">${fmt.int(r.invocations)}</td>
       <td class="num">${fmt.usd4(r.cost_per_invocation)}</td><td class="num">${r.avg_carry_turns}</td>
       <td class="num">${fmt.usd4(r.load_cost_usd)}</td><td class="num">${fmt.usd4(r.carry_cost_usd)}</td>
+      <td class="num" title="${fmt.pct(r.expiry_share)} of this row's cost">${fmt.usd4(r.expiry_cost_usd)}</td>
       <td class="num">${fmt.int(r.sessions)}</td><td class="num">${fmt.pct(r.share)}</td><td class="num">${fmt.pct(r.cumulative_share)}</td>
       <td class="mono">${esc(fmt.ts(r.first_seen))}<br>${esc(fmt.ts(r.last_seen))}</td></tr>`).join('')
-      || '<tr><td colspan="11" class="muted">no costed invocations in this range</td></tr>'}
+      || '<tr><td colspan="12" class="muted">no costed invocations in this range</td></tr>'}
     </tbody></table>`;
 }
 
 function repeatCard(d) {
   const r = d.repeat, sp = r.carry_split;
   const ws = r.worst_session;
-  const cell = (n, l) => `<td>${l}</td><td class="num">${fmt.int(sp[n].invocations)}</td><td class="num">${fmt.usd4(sp[n].est_cost_usd)}</td><td class="num">${fmt.usd4(sp[n].carry_cost_usd)}</td>`;
+  const cell = (n, l) => `<td>${l}</td><td class="num">${fmt.int(sp[n].invocations)}</td><td class="num">${fmt.usd4(sp[n].est_cost_usd)}</td><td class="num">${fmt.usd4(sp[n].carry_cost_usd)}</td><td class="num">${fmt.usd4(sp[n].expiry_cost_usd)}</td>`;
   return `<div class="card" style="margin-top:16px"><h3>Reloads and carry length</h3>
     <p>${fmt.int(r.repeat_invocations)} re-invocation(s) of this skill within the same session
       (${fmt.int(r.sessions_with_repeats)} session(s)), costing ${fmt.usd(r.repeat_cost_usd)}
       (${fmt.pct(r.share_of_cost)} of its cost).
       ${ws ? `Worst: <a href="#/sessions/${encodeURIComponent(ws.session_id)}">${esc(ws.session_id.slice(0, 8))}</a> (${fmt.int(ws.invocations)} loads).` : ''}</p>
-    <table><thead><tr><th>kind</th><th class="num">invocations</th><th class="num">est. cost</th><th class="num">carry</th></tr></thead><tbody>
+    <table><thead><tr><th>kind</th><th class="num">invocations</th><th class="num">est. cost</th><th class="num">carry</th>${expiryTh()}</tr></thead><tbody>
       <tr>${cell('short', 'loaded, session ended soon')}</tr><tr>${cell('medium', 'carried a while')}</tr><tr>${cell('long', 'carried long')}</tr>
     </tbody></table><p class="muted" style="font-size:12px">${esc(r.carry_split_note)}</p></div>`;
 }
 
 function sessionsCard(d) {
   return `<div class="card" style="margin-top:16px"><h3>Top sessions for this skill</h3>
-    <table><thead><tr><th>session</th><th>project</th><th class="num">invocations</th><th class="num">carry turns</th><th class="num">est. cost</th></tr></thead><tbody>
+    <table><thead><tr><th>session</th><th>project</th><th class="num">invocations</th><th class="num">carry turns</th><th class="num">est. cost</th>${expiryTh()}</tr></thead><tbody>
     ${d.top_sessions.map(s => `<tr><td class="mono"><a href="#/sessions/${encodeURIComponent(s.session_id)}">${esc(s.session_id.slice(0, 8))}</a></td>
       <td>${esc(s.project_name || s.project_slug || '')}</td><td class="num">${fmt.int(s.invocations)}</td>
-      <td class="num">${fmt.int(s.carry_turns)}</td><td class="num">${fmt.usd4(s.est_cost_usd)}</td></tr>`).join('')
-      || '<tr><td colspan="5" class="muted">no sessions</td></tr>'}</tbody></table></div>`;
+      <td class="num">${fmt.int(s.carry_turns)}</td><td class="num">${fmt.usd4(s.est_cost_usd)}</td><td class="num">${fmt.usd4(s.expiry_cost_usd)}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="muted">no sessions</td></tr>'}</tbody></table></div>`;
 }
 
 function diagCard(list) {

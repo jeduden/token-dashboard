@@ -16,19 +16,16 @@ agent_id, timestamp) index was not picked up by the planner and changed nothing
 from __future__ import annotations
 
 import heapq
-from datetime import date
-from typing import Dict, Iterator, Optional
+from typing import Iterator, Optional
 
 from .db import connect, best_project_name
 from .pricing import cost_for
 from .repos import slug_repo_map
+from .cache_gaps import Gaps
+from .cache_events import (  # noqa: F401  (re-exported: the expiry decision lives in cache_events)
+    TTL_5M_S, TTL_1H_S, MISS_SHARE, MIN_MISS_TOKENS, PREFIX_DROP_RATIO, ThreadTracker,
+    classify, is_miss, epoch as _epoch)
 
-# ---- tunable heuristics -----------------------------------------------------
-TTL_5M_S = 5 * 60            # default prompt-cache lifetime
-TTL_1H_S = 60 * 60           # extended lifetime (1h cache writes)
-MISS_SHARE = 0.5             # miss if (created + uncached input) / prompt >= this
-MIN_MISS_TOKENS = 2000       # ignore tiny prompts / small incremental writes
-PREFIX_DROP_RATIO = 0.5      # cache_read < this * previous prompt size => prefix changed
 TOP_SESSIONS = 20
 
 CAUSES = ("model_switch", "ttl_expired_1h", "ttl_expired_5m",
@@ -42,25 +39,6 @@ CAUSE_HELP = {
     "new_content": "Cache reads were retained but a lot of new content was added at once (e.g. a huge tool result). Little is truly wasted.",
     "unknown": "Could not be attributed; not enough history in the thread.",
 }
-
-_ORD_CACHE: Dict[str, int] = {}
-
-
-def _epoch(ts: str) -> Optional[float]:
-    """Fast ISO-8601 (UTC) -> seconds; None if unparseable. Day ordinals memoized."""
-    try:
-        day = ts[:10]
-        o = _ORD_CACHE.get(day)
-        if o is None:
-            o = date(int(day[:4]), int(day[5:7]), int(day[8:10])).toordinal()
-            if len(_ORD_CACHE) > 20000:
-                _ORD_CACHE.clear()
-            _ORD_CACHE[day] = o
-        s = int(ts[11:13]) * 3600 + int(ts[14:16]) * 60 + float(ts[17:23].rstrip("Z+-") or 0)
-        return o * 86400 + s
-    except (ValueError, IndexError, TypeError):
-        return None
-
 
 def _stream(conn, until) -> Iterator[tuple]:
     sql = ("SELECT session_id, project_slug, is_sidechain, agent_id, timestamp, model, "
@@ -78,28 +56,6 @@ def _stream(conn, until) -> Iterator[tuple]:
         if not batch:
             return
         yield from batch
-
-
-def classify(gap_s, prev_model, model, last_tier, read, prev_ctx) -> str:
-    """Heuristic cause for a miss turn. `last_tier` is '5m'/'1h'/None."""
-    if prev_model and model and prev_model != model:
-        return "model_switch"
-    if gap_s is not None:
-        if last_tier == "1h" and gap_s > TTL_1H_S:
-            return "ttl_expired_1h"
-        if last_tier == "5m" and gap_s > TTL_5M_S:
-            return "ttl_expired_5m"
-    if prev_ctx <= 0:
-        return "unknown"
-    if read < PREFIX_DROP_RATIO * prev_ctx:
-        return "prefix_changed"
-    return "new_content"
-
-
-def is_miss(read, created, inp) -> bool:
-    total = read + created + inp
-    fresh = created + inp
-    return total > 0 and fresh >= MIN_MISS_TOKENS and fresh / total >= MISS_SHARE
 
 
 class _Rates:
@@ -166,28 +122,21 @@ def cache_report(db_path, pricing, since=None, until=None) -> dict:
     by_day, by_project, by_model, sessions = {}, {}, {}, {}
     unpriced = 0
     cur_key = None
-    p_ts = p_model = p_ctx = last_tier = None
+    tracker = ThreadTracker()
+    gaps = Gaps()
 
     with connect(db_path) as conn:
         for (sid, slug, side, agent, ts, model, inp, read, c5, c1) in _stream(conn, until):
             key = (sid, side, agent)
             if key != cur_key:
-                cur_key, p_ts, p_model, p_ctx, last_tier = key, None, None, 0, None
-                first = True
-            else:
-                first = False
-            now = _epoch(ts)
+                cur_key, tracker = key, ThreadTracker()
+            st = tracker.step(_epoch(ts), model, inp, read, c5, c1)
+            first, miss, cause = st.first, st.miss, st.cause
             created = c5 + c1
-            if since and ts < since:
-                in_range = False
-            else:
-                in_range = True
-            miss = (not first) and is_miss(read, created, inp)
-            cause, waste = None, 0.0
+            in_range = not (since and ts < since)
+            waste = 0.0
             if miss and in_range:
-                gap = (now - p_ts) if (now is not None and p_ts is not None) else None
-                cause = classify(gap, p_model, model, last_tier, read, p_ctx)
-                w = wasted_usd(rates.get(model), inp, c5, c1, read, p_ctx)
+                w = wasted_usd(rates.get(model), inp, c5, c1, read, st.prev_ctx)
                 if w is None:
                     unpriced += 1
                 else:
@@ -210,12 +159,9 @@ def cache_report(db_path, pricing, since=None, until=None) -> dict:
                     cb["turns"] += 1
                     cb["wasted_usd"] += waste
                     cb["tokens_created"] += created
-            # advance thread state
-            p_ts, p_model, p_ctx = now, model, read + created + inp
-            if c1 > 0:
-                last_tier = "1h"
-            elif c5 > 0:
-                last_tier = "5m"
+                    if st.expired:
+                        gaps.expired(st.tier, st.gap_s, waste)
+                gaps.wrote_5m(c5, rates.get(model))
 
         worst = heapq.nlargest(
             TOP_SESSIONS,
@@ -253,6 +199,7 @@ def cache_report(db_path, pricing, since=None, until=None) -> dict:
         "by_model": sorted((_finish(b, model=m) for m, b in by_model.items()),
                            key=lambda r: -r["wasted_usd"]),
         "worst_sessions": worst_sessions,
+        "gaps": gaps.to_dict(),
         "thresholds": {
             "ttl_5m_s": TTL_5M_S, "ttl_1h_s": TTL_1H_S, "miss_share": MISS_SHARE,
             "min_miss_tokens": MIN_MISS_TOKENS, "prefix_drop_ratio": PREFIX_DROP_RATIO,

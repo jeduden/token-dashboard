@@ -135,15 +135,18 @@ class TimeSeries:
 
     def add(self, c):
         d = self.days.setdefault(day_of(c["timestamp"]), {"calls": 0, "est_cost_usd": 0.0,
-                                                          "carry_cost_usd": 0.0, "unattributed_calls": 0})
+                                                          "carry_cost_usd": 0.0, "expiry_cost_usd": 0.0,
+                                                          "unattributed_calls": 0})
         if not c["attributed"]:
             d["unattributed_calls"] += 1
             return
         d["calls"] += 1
         d["est_cost_usd"] += c["usd"]
         d["carry_cost_usd"] += c["carry_usd"]
+        d["expiry_cost_usd"] += c["expiry_usd"]
 
     def to_list(self) -> list:
         return [{"day": k, "calls": v["calls"], "est_cost_usd": round(v["est_cost_usd"], 6),
-                 "carry_cost_usd": round(v["carry_cost_usd"], 6), "unattributed_calls": v["unattributed_calls"]}
+                 "carry_cost_usd": round(v["carry_cost_usd"], 6),
+                 "expiry_cost_usd": round(v["expiry_cost_usd"], 6), "unattributed_calls": v["unattributed_calls"]}
                 for k, v in sorted(self.days.items())]

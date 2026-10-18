@@ -1,5 +1,6 @@
 // costs-call.js — single tool-call drill-down: #/costs/call/<tool_calls.id>?range=30d
 import { fmt } from '/web/app.js';
+import { EXPIRY_HELP } from '/web/routes/costs-drill-ui.js';
 
 const SEV_COLOR = { high: '#E5484D', warn: '#F5A623', info: '#4A9EFF' };
 const END_TEXT = {
@@ -10,6 +11,14 @@ const END_TEXT = {
 };
 const END_SHORT = { session_end: 'session end', compaction_detected: 'compaction', ongoing: 'ongoing' };
 const esc = fmt.htmlSafe;
+const REWRITE_COLOR = '#E5484D';
+
+function gapText(s) {
+  if (s == null) return '';
+  if (s < 90) return Math.round(s) + ' s';
+  if (s < 5400) return Math.round(s / 60) + ' min';
+  return (s / 3600).toFixed(1) + ' h';
+}
 
 function param(name) {
   const m = new RegExp('(?:^|&)' + name + '=([^&]+)').exec(location.hash.split('?')[1] || '');
@@ -59,7 +68,8 @@ function diags(list) {
 function accrual(d) {
   const pts = [];
   if (d.create_turn) pts.push({ x: '+1 create', v: d.create_turn.cost_usd, ts: d.create_turn.timestamp, model: d.create_turn.model });
-  d.carry_timeline.forEach(t => pts.push({ x: '+' + t.turn_offset, v: t.cumulative_usd, ts: t.timestamp, model: t.model }));
+  d.carry_timeline.forEach(t => pts.push({ x: '+' + t.turn_offset, v: t.cumulative_usd, ts: t.timestamp, model: t.model,
+    rewrite: t.kind === 'rewrite', gap: t.gap_s, add: t.cost_usd }));
   return pts;
 }
 
@@ -77,17 +87,27 @@ function drawChart(el, d, cleanup) {
     grid: { left: 40, right: 24, top: 28, bottom: 28, containLabel: true },
     tooltip: {
       trigger: 'axis', backgroundColor: '#0F1419', borderColor: '#283040', textStyle: { color: '#E6EDF3', fontSize: 12 },
-      formatter: p => { const q = pts[p[0].dataIndex]; return `${esc(q.x)} turn, ${esc(fmt.ts(q.ts))}<br>${esc(fmt.modelShort(q.model))}<br>cumulative ${fmt.usd4(q.v)}`; },
+      formatter: p => {
+        const q = pts[p[0].dataIndex];
+        const what = q.rewrite ? `<br>re-written after an idle gap of ${esc(gapText(q.gap))} (+${fmt.usd4(q.add)})` : '';
+        return `${esc(q.x)} turn, ${esc(fmt.ts(q.ts))}<br>${esc(fmt.modelShort(q.model))}${what}<br>cumulative ${fmt.usd4(q.v)}`;
+      },
     },
+    legend: { top: 0, right: 0, icon: 'roundRect', itemWidth: 8, itemHeight: 8, textStyle: { color: '#8B98A6' } },
     xAxis: { type: 'category', data: pts.map(p => p.x), boundaryGap: false, axisLabel: { color: '#8B98A6' }, axisLine: { lineStyle: { color: '#1F2630' } }, axisTick: { show: false } },
     yAxis: { type: 'value', axisLabel: { color: '#8B98A6', formatter: v => '$' + v }, splitLine: { lineStyle: { color: '#1F2630' } } },
     series: [{
+      name: 'cumulative cost (create + read per turn)',
       type: 'line', step: 'end', data: pts.map(p => p.v), showSymbol: pts.length < 40, lineStyle: { width: 2, color: '#E5A23B' },
       itemStyle: { color: '#E5A23B' }, areaStyle: { opacity: 0.12, color: '#E5A23B' },
       markLine: END_SHORT[reason] ? {
         silent: true, symbol: 'none', lineStyle: { color: reason === 'compaction_detected' ? '#E5484D' : '#8B98A6', type: 'dashed' },
         label: { color: '#8B98A6', formatter: END_SHORT[reason], position: 'insideEndTop' }, data: [{ xAxis: last }],
       } : undefined,
+    }, {
+      name: 're-write after idle gap (cache expired)', type: 'scatter', symbol: 'diamond', symbolSize: 14,
+      itemStyle: { color: REWRITE_COLOR }, z: 5,
+      data: pts.map(p => (p.rewrite ? p.v : null)),
     }],
   });
 }
@@ -112,13 +132,16 @@ function view(d, range) {
         · tool_use_id <span class="mono">${esc(id.tool_use_id || '—')}</span></p></div>
     <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0">
       ${kpi('est. cost', fmt.usd4(c.est_cost_usd), `${fmt.pct(c.share_of_session_cost)} of session tool cost, ${fmt.pct(c.share_of_thread_spend)} of thread spend`)}
-      ${kpi('create vs carry', `${fmt.usd4(c.create_cost_usd)} / ${fmt.usd4(c.carry_cost_usd)}`, `carried over ${fmt.int(c.carry_turns)} turn(s)`)}
+      ${kpi('create / carry / expiry', `${fmt.usd4(c.create_cost_usd)} / ${fmt.usd4(c.carry_cost_usd)} / ${fmt.usd4(c.expiry_cost_usd)}`,
+        `carried over ${fmt.int(c.carry_turns)} turn(s); <span title="${esc(EXPIRY_HELP)}">expiry = re-write after idle gap</span>${c.expiry_events ? ` (${fmt.int(c.expiry_events)}x, idle ${esc(gapText(c.expiry_gap_total_s))} in total)` : ''}`)}
       ${kpi('rank', c.rank == null ? '—' : '#' + fmt.int(c.rank), rankSub)}
       ${kpi('result tokens', id.result_tokens == null ? '—' : fmt.int(id.result_tokens), id.result_chars == null ? '' : fmt.int(id.result_chars) + ' chars')}
     </div>
     <div class="card"><h3>Cost accrual over later turns</h3>
       <p class="muted" style="font-size:12px">${esc(END_TEXT[d.carry_end.reason] || '')}</p>
-      <div id="ch-accrual" style="height:260px"></div></div>
+      <div id="ch-accrual" style="height:260px"></div>
+      ${c.expiry_events ? `<p class="muted" style="font-size:12px;margin:8px 0 0"><span style="color:${REWRITE_COLOR}" aria-hidden="true">&#9670;</span>
+        Red diamonds mark turns where the cache had expired after an idle gap and this content was written again at the cache-write price (${esc(EXPIRY_HELP)}).</p>` : ''}</div>
     ${callsTable('Same assistant message (parallel batch)', d.siblings, range, 'no sibling calls in this message')}
     ${callsTable('Previous calls in this thread', d.previous, range, 'none before it')}
     ${callsTable('Next calls in this thread', d.next, range, 'none after it')}

@@ -63,7 +63,7 @@ def resolve_group(group):
 
 
 def _acc():
-    return {"inv": 0, "usd": 0.0, "carry": 0.0, "turns": 0, "sessions": set(),
+    return {"inv": 0, "usd": 0.0, "carry": 0.0, "expiry": 0.0, "events": 0, "turns": 0, "sessions": set(),
             "first": None, "last": None, "slug": None}
 
 
@@ -71,6 +71,8 @@ def _add(a, c):
     a["inv"] += 1
     a["usd"] += c["usd"]
     a["carry"] += c["carry_usd"]
+    a["expiry"] += c["expiry_usd"]
+    a["events"] += c["expiry_events"]
     a["turns"] += c["carry_turns"]
     a["sessions"].add(c["session_id"])
     ts = c["timestamp"]
@@ -81,7 +83,7 @@ def _add(a, c):
 
 
 def _split():
-    return {n: {"invocations": 0, "est_cost_usd": 0.0, "carry_cost_usd": 0.0}
+    return {n: {"invocations": 0, "est_cost_usd": 0.0, "carry_cost_usd": 0.0, "expiry_cost_usd": 0.0}
             for n in ("short", "medium", "long")}
 
 
@@ -99,7 +101,8 @@ class _Collector:
         self.all_usd: dict = {}            # every skill -> [usd, invocations]
         self.n = self.n_attr = 0
         self.load = 0
-        self.usd = self.carry = 0.0
+        self.usd = self.carry = self.expiry = 0.0
+        self.events = 0
         self.sessions: set = set()
         self.estimated = False
         self.first = self.last = None
@@ -137,11 +140,14 @@ class _Collector:
         self.n_attr += 1
         self.usd += c["usd"]
         self.carry += c["carry_usd"]
+        self.expiry += c["expiry_usd"]
+        self.events += c["expiry_events"]
         t = c["carry_turns"]
         b = self.split["short" if t <= SHORT_CARRY_TURNS else "long" if t >= LONG_CARRY_TURNS else "medium"]
         b["invocations"] += 1
         b["est_cost_usd"] += c["usd"]
         b["carry_cost_usd"] += c["carry_usd"]
+        b["expiry_cost_usd"] += c["expiry_usd"]
         key = self.fn(c)[:ci.TARGET_MAX_CHARS]
         a = self.rows.get(key)
         if a is None:
@@ -213,8 +219,10 @@ def _row(key, a, total_usd, cum):
     n = a["inv"]
     return {
         "key": key, "invocations": n, "sessions": len(a["sessions"]),
-        "est_cost_usd": _r(a["usd"]), "load_cost_usd": _r(a["usd"] - a["carry"]),
-        "carry_cost_usd": _r(a["carry"]), "cost_per_invocation": _r(a["usd"] / n) if n else 0.0,
+        "est_cost_usd": _r(a["usd"]), "load_cost_usd": _r(a["usd"] - a["carry"] - a["expiry"]),
+        "carry_cost_usd": _r(a["carry"]), "expiry_cost_usd": _r(a["expiry"]),
+        "expiry_share": round(a["expiry"] / a["usd"], 4) if a["usd"] else 0.0,
+        "expiry_events": a["events"], "cost_per_invocation": _r(a["usd"] / n) if n else 0.0,
         "avg_carry_turns": round(a["turns"] / n, 2) if n else 0.0,
         "share": round(a["usd"] / total_usd, 4) if total_usd else 0.0,
         "cumulative_share": round(cum / total_usd, 4) if total_usd else 0.0,
@@ -231,6 +239,7 @@ def _merge_repos(conn, rows):
         if m is None:
             m = out[info["key"]] = dict(_acc(), repo_name=info["name"])
         m["inv"] += a["inv"]; m["usd"] += a["usd"]; m["carry"] += a["carry"]; m["turns"] += a["turns"]
+        m["expiry"] += a["expiry"]; m["events"] += a["events"]
         m["sessions"] |= a["sessions"]
         for f, fn in (("first", min), ("last", max)):
             vals = [v for v in (m[f], a[f]) if v]
@@ -303,8 +312,9 @@ def skill_detail(db_path, pricing, skill, since=None, until=None, limit=50, grou
         "invocations": n_all, "attributed_invocations": n_attr,
         "unattributed_invocations": col.unattributed, "sessions": len(col.sessions),
         "est_load_tokens": round(col.load / n_all) if n_all else 0, "estimated": col.estimated,
-        "est_cost_usd": _r(col.usd), "load_cost_usd": _r(col.usd - col.carry),
-        "carry_cost_usd": _r(col.carry),
+        "est_cost_usd": _r(col.usd), "load_cost_usd": _r(col.usd - col.carry - col.expiry),
+        "carry_cost_usd": _r(col.carry), "expiry_cost_usd": _r(col.expiry), "expiry_events": col.events,
+        "expiry_share": round(col.expiry / col.usd, 4) if col.usd else 0.0,
         "cost_per_invocation": _r(col.usd / n_all) if n_all else 0.0,
         "first_used": col.first, "last_used": col.last,
         "rank": rank, "skills_total": skills_total,
@@ -323,10 +333,11 @@ def skill_detail(db_path, pricing, skill, since=None, until=None, limit=50, grou
         "share_of_cost": round(repeat_usd / col.usd, 4) if col.usd else 0.0,
         "worst_session": worst and {"session_id": worst[0], "invocations": worst[1]["inv"],
                                     "repeat_cost_usd": _r(worst[1]["usd"] - worst[1]["first_usd"])},
-        "carry_split": {k: {**v, "est_cost_usd": _r(v["est_cost_usd"]), "carry_cost_usd": _r(v["carry_cost_usd"])}
+        "carry_split": {k: {**v, "est_cost_usd": _r(v["est_cost_usd"]), "carry_cost_usd": _r(v["carry_cost_usd"]),
+                                       "expiry_cost_usd": _r(v["expiry_cost_usd"])}
                         for k, v in col.split.items()},
         "carry_split_note": f"short: <= {SHORT_CARRY_TURNS} later turns (session ended soon); "
-                            f"long: >= {LONG_CARRY_TURNS} later turns",
+                            f"long: >= {LONG_CARRY_TURNS} later turns; expiry = re-write after an idle gap",
     }
     avg_turns = sum(a["turns"] for a in col.by_session.values()) / n_attr if n_attr else 0.0
     cmp = {"avg_cost_per_invocation": all_usd / all_inv if all_inv else 0.0}
