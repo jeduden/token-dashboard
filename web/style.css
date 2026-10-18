@@ -231,3 +231,29 @@ hr.divider { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
   .glossary dl { grid-template-columns: 1fr; gap: 4px 0; }
   .glossary dt { margin-top: 10px; }
 }
+
+/* projects: repo rows */
+.repo-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.repo-row .caret { display: inline-block; width: 1em; color: var(--muted); }
+.repo-row .badge, .wt-row .badge { margin-left: 4px; }
+
+/* costs drill-down: sortable headers, loading state, notices */
+.sortbtn { all: unset; cursor: pointer; color: var(--muted); }
+.sortbtn.active { color: var(--text); }
+.sortbtn:hover { color: var(--text); }
+.sortbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.drill-dim { opacity: 0.45; pointer-events: none; transition: opacity 0.15s; }
+.drill-bar { height: 3px; margin-bottom: 10px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: drill-slide 1s linear infinite; }
+@keyframes drill-slide { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+@media (prefers-reduced-motion: reduce) { .drill-bar { animation: none; background: var(--accent); opacity: 0.5; } }
+.drill-notice { margin-bottom: 16px; border-color: var(--warn); color: var(--warn); }
+
+/* costs: skill drill-down (keyboard-visible focus) */
+.skill-link:focus-visible, .sort-btn:focus-visible, #skill-grp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+tr[data-skill-drill]:hover, tr[data-skill-drill]:focus-within { background: var(--panel-2); }
+.sort-btn { all: unset; cursor: pointer; }
+.sort-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sev-badge { font-size: 11px; }
+
+/* costs: single-call drill-down links */
+.card table a:focus-visible, .card > a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }

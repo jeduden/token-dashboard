@@ -5,6 +5,7 @@ import http.server
 import json
 import mimetypes
 import queue
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -16,9 +17,16 @@ from .db import (
     daily_token_breakdown, model_breakdown, skill_breakdown,
 )
 from .pricing import load_pricing, cost_for, get_plan, set_plan
+from .repos import repo_summary, annotate_projects
 from .tips import all_tips, dismiss_tip
 from .scanner import scan_dir
+from .scan_state import get_status, run_scan
 from .skills import cached_catalog
+from .cost_insights import tool_costs, skill_costs, top_calls
+from .cache_insights import cache_report
+from .cost_drilldown import tool_params
+from .skill_drilldown import skill_detail
+from .call_detail import call_detail, NotFound
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -44,6 +52,23 @@ def _send_error(handler, status: int, msg: str) -> None:
     _send_json(handler, {"error": msg}, status=status)
 
 
+def _emit(evt: dict) -> None:
+    # Bound the queue: with no SSE client attached nothing drains it.
+    while EVENTS.qsize() > 200:
+        try:
+            EVENTS.get_nowait()
+        except queue.Empty:
+            break
+    EVENTS.put(evt)
+
+
+def _db_busy(handler, e) -> None:
+    try:
+        _send_error(handler, 503, f"database busy: {e}")
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+
+
 def _clamp_limit(raw, default: int) -> int:
     try:
         v = int(raw)
@@ -64,6 +89,7 @@ def _serve_static(handler, rel: str) -> None:
     handler.send_response(200)
     handler.send_header("Content-Type", ctype or "application/octet-stream")
     handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-cache")  # revalidate: the UI is edited in place
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -79,6 +105,12 @@ def build_handler(db_path: str, projects_dir: str):
             return self.do_GET()
 
         def do_GET(self):
+            try:
+                return self._do_get()
+            except sqlite3.OperationalError as e:
+                return _db_busy(self, e)
+
+        def _do_get(self):
             url = urlparse(self.path)
             qs = parse_qs(url.query or "")
             path = url.path
@@ -109,8 +141,10 @@ def build_handler(db_path: str, projects_dir: str):
                     }, pricing)
                     r["estimated_cost_usd"] = c["usd"]
                 return _send_json(self, rows)
+            if path == "/api/repos":
+                return _send_json(self, repo_summary(db_path, since, until))
             if path == "/api/projects":
-                return _send_json(self, project_summary(db_path, since, until))
+                return _send_json(self, annotate_projects(db_path, project_summary(db_path, since, until)))
             if path == "/api/tools":
                 return _send_json(self, tool_token_breakdown(db_path, since, until))
             if path == "/api/sessions":
@@ -127,6 +161,8 @@ def build_handler(db_path: str, projects_dir: str):
                     info = catalog.get(r["skill"])
                     r["tokens_per_call"] = info["tokens"] if info else None
                 return _send_json(self, rows)
+            if path == "/api/cache":
+                return _send_json(self, cache_report(db_path, pricing, since, until))
             if path == "/api/by-model":
                 rows = model_breakdown(db_path, since, until)
                 for r in rows:
@@ -139,10 +175,47 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, session_turns(db_path, sid))
             if path == "/api/tips":
                 return _send_json(self, all_tips(db_path))
+            if path == "/api/skill-costs/detail":
+                limit = _clamp_limit(qs.get("limit", ["50"])[0], 50)
+                try:
+                    return _send_json(self, skill_detail(
+                        db_path, pricing, qs.get("skill", [""])[0], since, until, limit,
+                        qs.get("group", ["project"])[0] or "project"))
+                except ValueError as e:
+                    return _send_json(self, {"error": str(e)}, 400)
+            if path == "/api/tool-costs/params":
+                limit = _clamp_limit(qs.get("limit", ["50"])[0], 50)
+                try:
+                    return _send_json(self, tool_params(
+                        db_path, pricing, qs.get("tool", [""])[0], since, until, limit,
+                        qs.get("group", ["auto"])[0] or "auto"))
+                except ValueError as e:
+                    return _send_json(self, {"error": str(e)}, 400)
+            if path == "/api/tool-costs/call":
+                try:
+                    cid = int(qs.get("id", [""])[0])
+                except ValueError:
+                    return _send_json(self, {"error": "id must be an integer tool_calls.id"}, 400)
+                try:
+                    return _send_json(self, call_detail(db_path, pricing, cid))
+                except NotFound as e:
+                    return _send_json(self, {"error": str(e)}, 404)
+            if path in ("/api/tool-costs", "/api/skill-costs", "/api/tool-costs/calls"):
+                limit = _clamp_limit(qs.get("limit", ["50"])[0], 50)
+                if path == "/api/tool-costs":
+                    return _send_json(self, tool_costs(db_path, pricing, since, until, limit))
+                if path == "/api/skill-costs":
+                    return _send_json(self, skill_costs(db_path, pricing, since, until, limit))
+                tool = qs.get("tool", [None])[0] or None
+                return _send_json(self, top_calls(db_path, pricing, since, until, tool, limit))
             if path == "/api/plan":
                 return _send_json(self, {"plan": get_plan(db_path), "pricing": pricing})
+            if path == "/api/scan/status":
+                return _send_json(self, get_status())
             if path == "/api/scan":
-                n = scan_dir(projects_dir, db_path)
+                started, n = run_scan(projects_dir, db_path, scan_dir, _emit)
+                if not started:
+                    return _send_json(self, {"started": False, **get_status()})
                 return _send_json(self, n)
             if path == "/api/stream":
                 self.send_response(200)
@@ -165,6 +238,12 @@ def build_handler(db_path: str, projects_dir: str):
             self.end_headers()
 
         def do_POST(self):
+            try:
+                return self._do_post()
+            except sqlite3.OperationalError as e:
+                return _db_busy(self, e)
+
+        def _do_post(self):
             url = urlparse(self.path)
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -193,16 +272,18 @@ def build_handler(db_path: str, projects_dir: str):
 def _scan_loop(db_path: str, projects_dir: str, interval: float = 30.0):
     while True:
         try:
-            n = scan_dir(projects_dir, db_path)
-            if n["messages"] > 0:
+            started, n = run_scan(projects_dir, db_path, scan_dir, _emit)
+            if started and n["messages"] > 0:
                 EVENTS.put({"type": "scan", "n": n, "ts": time.time()})
         except Exception as e:
             EVENTS.put({"type": "error", "message": str(e)})
         time.sleep(interval)
 
 
-def run(host: str, port: int, db_path: str, projects_dir: str):
-    threading.Thread(target=_scan_loop, args=(db_path, projects_dir), daemon=True).start()
+def run(host: str, port: int, db_path: str, projects_dir: str, scan: bool = True):
+    """Start listening immediately; the first scan runs in the background."""
+    if scan:
+        threading.Thread(target=_scan_loop, args=(db_path, projects_dir), daemon=True).start()
     H = build_handler(db_path, projects_dir)
     httpd = http.server.ThreadingHTTPServer((host, port), H)
     httpd.serve_forever()

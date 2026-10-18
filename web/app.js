@@ -11,7 +11,7 @@ export const fmt = {
   usd4:  n => n == null ? '—' : '$' + Number(n).toFixed(4),
   pct:   n => n == null ? '—' : (n * 100).toFixed(0) + '%',
   short: (s, n=80) => s == null ? '' : (s.length > n ? s.slice(0, n - 1) + '…' : s),
-  htmlSafe: s => (s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+  htmlSafe: s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
   modelClass: m => {
     const s = (m || '').toLowerCase();
     if (s.includes('opus'))   return 'opus';
@@ -37,6 +37,8 @@ const ROUTES = {
   '/sessions': () => import('/web/routes/sessions.js'),
   '/projects': () => import('/web/routes/projects.js'),
   '/skills':   () => import('/web/routes/skills.js'),
+  '/costs':    () => import('/web/routes/costs.js'),
+  '/cache':    () => import('/web/routes/cache.js'),
   '/tips':     () => import('/web/routes/tips.js'),
   '/settings': () => import('/web/routes/settings.js'),
 };
@@ -65,6 +67,7 @@ async function render() {
   const path = hash.split('?')[0];
   let key = path;
   if (path.startsWith('/sessions/')) key = '/sessions';
+  if (path.startsWith('/costs/')) key = '/costs';
   setActiveTab(key);
   const loader = ROUTES[key] || ROUTES['/overview'];
   const mod = await loader();
@@ -104,6 +107,19 @@ async function firstRun() {
   state.plan = (await api('/api/plan')).plan;
 }
 
+function showScanProgress(st) {
+  let el = document.getElementById('scan-banner');
+  if (!st || !st.running) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'scan-banner';
+    el.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:50;padding:8px 14px;' +
+      'background:#1b2330;color:#cdd6e0;border:1px solid #2c3a4d;border-radius:6px;font-size:13px';
+    document.body.appendChild(el);
+  }
+  el.textContent = `Indexing ${st.files_done}/${st.files_total} files…`;
+}
+
 async function boot() {
   buildTopbar();
   const planResp = await api('/api/plan');
@@ -124,6 +140,8 @@ async function boot() {
     }
   });
 
+  api('/api/scan/status').then(showScanProgress).catch(() => {});
+
   // SSE diff stream
   try {
     const es = new EventSource('/api/stream');
@@ -131,6 +149,8 @@ async function boot() {
       try {
         const evt = JSON.parse(ev.data);
         if (evt.type === 'scan') render();
+        if (evt.type === 'scan_progress') showScanProgress(evt);
+        if (evt.type === 'scan_progress' && !evt.running) render();
       } catch {}
     };
   } catch {}

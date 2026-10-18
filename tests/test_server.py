@@ -44,6 +44,12 @@ class ServerTests(unittest.TestCase):
         body = self._get("/")
         self.assertIn(b"Token Dashboard", body)
 
+    def test_static_files_are_revalidated(self):
+        """The UI is edited in place; a stale cached route module hid fixes."""
+        for path in ("/", "/web/app.js", "/web/routes/costs.js"):
+            r = urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}")
+            self.assertEqual(r.headers.get("Cache-Control"), "no-cache", path)
+
     def test_overview_json(self):
         body = json.loads(self._get("/api/overview"))
         self.assertIn("sessions", body)
