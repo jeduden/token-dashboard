@@ -30,6 +30,12 @@ export default async function (root) {
   const since = sinceIso(range);
   const url = '/api/skills' + (since ? '?since=' + encodeURIComponent(since) : '');
   const skills = await api(url);
+  // Estimated cost per skill (load + carry); optional, never blocks the view.
+  const costs = {};
+  try {
+    const cr = await api('/api/skill-costs?limit=1000' + (since ? '&since=' + encodeURIComponent(since) : ''));
+    (cr.skills || []).forEach(c => { costs[c.skill] = c; });
+  } catch (e) { /* cost column stays blank */ }
 
   const totalInvocations = skills.reduce((s, r) => s + r.invocations, 0);
   const totalSessions = new Set(); // not exact — we'd need another query; skip.
@@ -65,6 +71,7 @@ export default async function (root) {
           <th>skill</th>
           <th class="num">invocations</th>
           <th class="num">tokens per call</th>
+          <th class="num">est. cost</th>
           <th class="num">sessions</th>
           <th>last used</th>
         </tr></thead>
@@ -74,9 +81,10 @@ export default async function (root) {
               <td><span class="badge">${fmt.htmlSafe(s.skill)}</span></td>
               <td class="num">${fmt.int(s.invocations)}</td>
               <td class="num">${s.tokens_per_call == null ? '<span class="muted">—</span>' : fmt.int(s.tokens_per_call)}</td>
+              <td class="num">${costs[s.skill] ? fmt.usd(costs[s.skill].est_cost_usd) + (costs[s.skill].estimated ? '~' : '') : '<span class="muted">—</span>'}</td>
               <td class="num">${fmt.int(s.sessions)}</td>
               <td class="mono">${fmt.ts(s.last_used)}</td>
-            </tr>`).join('') || '<tr><td colspan="5" class="muted">no skills invoked in this range</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="6" class="muted">no skills invoked in this range</td></tr>'}
         </tbody>
       </table>
     </div>
