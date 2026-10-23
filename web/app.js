@@ -35,6 +35,7 @@ const ROUTES = {
   '/overview': () => import('/web/routes/overview.js'),
   '/prompts':  () => import('/web/routes/prompts.js'),
   '/sessions': () => import('/web/routes/sessions.js'),
+  '/recent':  () => import('/web/routes/recent.js'),
   '/projects': () => import('/web/routes/projects.js'),
   '/skills':   () => import('/web/routes/skills.js'),
   '/costs':    () => import('/web/routes/costs.js'),

@@ -28,6 +28,10 @@ from .compaction_insights import compactions_report
 from .cost_drilldown import tool_params
 from .skill_drilldown import skill_detail
 from .call_detail import call_detail, NotFound
+from .recent_feed import recent_feed
+from .recent_buckets import message_buckets
+from .session_timeline import session_timeline
+from .session_costs import add_turn_costs, add_session_costs
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -149,10 +153,28 @@ def build_handler(db_path: str, projects_dir: str):
             if path == "/api/tools":
                 return _send_json(self, tool_token_breakdown(db_path, since, until))
             if path == "/api/sessions":
-                return _send_json(self, recent_sessions(
+                return _send_json(self, add_session_costs(db_path, pricing, recent_sessions(
                     db_path, limit=_clamp_limit(qs.get("limit", ["20"])[0], 20),
                     since=since, until=until,
-                ))
+                )))
+            if path == "/api/session-timeline":
+                sid = qs.get("id", [""])[0]
+                if not sid:
+                    return _send_json(self, {"error": "id is required"}, 400)
+                return _send_json(self, session_timeline(db_path, pricing, sid))
+            if path == "/api/recent/buckets":
+                sids = [x for x in qs.get("sessions", [""])[0].split(",") if x]
+                try:
+                    return _send_json(self, message_buckets(
+                        db_path, pricing, qs.get("bucket", ["day"])[0] or "day",
+                        since, until, sids or None))
+                except ValueError as e:
+                    return _send_json(self, {"error": str(e)}, 400)
+            if path == "/api/recent":
+                sids = [x for x in qs.get("sessions", [""])[0].split(",") if x]
+                return _send_json(self, recent_feed(
+                    db_path, pricing, limit=_clamp_limit(qs.get("limit", ["100"])[0], 100),
+                    since=since, until=until, sessions=sids or None))
             if path == "/api/daily":
                 return _send_json(self, daily_token_breakdown(db_path, since, until))
             if path == "/api/skills":
@@ -175,7 +197,7 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, rows)
             if path.startswith("/api/sessions/"):
                 sid = path.rsplit("/", 1)[1]
-                return _send_json(self, session_turns(db_path, sid))
+                return _send_json(self, add_turn_costs(session_turns(db_path, sid), pricing))
             if path == "/api/tips":
                 return _send_json(self, all_tips(db_path))
             if path == "/api/skill-costs/detail":

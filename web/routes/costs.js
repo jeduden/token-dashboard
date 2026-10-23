@@ -112,7 +112,7 @@ export default async function (root) {
           : fmt.htmlSafe(fmt.short(c.target, 90))}</td>
         <td class="num">${c.result_tokens == null ? '—' : fmt.int(c.result_tokens)}</td><td class="num">${fmt.usd4(c.est_cost_usd)}</td>
         <td class="num">${fmt.usd4(c.expiry_cost_usd)}</td>
-        <td class="mono">${fmt.ts(c.timestamp)}<div class="muted">${fmt.htmlSafe((c.session_id || '').slice(0, 8))}</div></td>
+        <td class="mono">${fmt.ts(c.timestamp)}<div class="muted">${c.session_id ? `<a href="#/sessions/${encodeURIComponent(c.session_id)}">${fmt.htmlSafe(c.session_id.slice(0, 8))}</a>` : ''}</div></td>
         <td>${c.diagnostics.map(d => sevBadge(d.severity) + ' ' + fmt.htmlSafe(d.rule)).join('<br>')}</td></tr>`).join('')
         || '<tr><td colspan="7" class="muted">no data</td></tr>'}
       </tbody></table></div>
