@@ -14,7 +14,7 @@ async function renderList(root) {
     <div class="card">
       <h2>Sessions</h2>
       <table>
-        <thead><tr><th>started</th><th>project</th><th class="num">turns</th><th class="num">tokens</th><th class="num">cost</th><th style="width:120px"></th><th>session</th></tr></thead>
+        <thead><tr><th>started</th><th>project</th><th class="num">turns</th><th class="num">tokens</th><th class="num">cost</th><th style="min-width:120px"></th><th>session</th></tr></thead>
         <tbody>
           ${list.map(s => `
             <tr>
@@ -23,7 +23,7 @@ async function renderList(root) {
               <td class="num">${fmt.int(s.turns)}</td>
               <td class="num">${fmt.int(s.tokens)}</td>
               <td class="num">${fmt.usd(s.cost_usd)}</td>
-              <td>${costBar(s.cost_usd, maxCost)}</td>
+              <td style="min-width:120px">${costBar(s.cost_usd, maxCost)}</td>
               <td><a href="#/sessions/${encodeURIComponent(s.session_id)}" class="mono">${fmt.htmlSafe(s.session_id.slice(0,8))}…</a></td>
             </tr>`).join('')}
         </tbody>
@@ -77,8 +77,8 @@ async function renderSession(root, id) {
     <div class="card" style="margin-top:16px">
       <h3 style="display:flex;align-items:center"><span>Turn-by-turn</span><span class="spacer"></span>
         <label class="muted" style="font-size:12px;font-weight:400"><input type="checkbox" id="show-empty"> show empty rows</label></h3>
-      <table>
-        <thead><tr><th>time</th><th>type</th><th>model</th><th class="blur-sensitive">prompt / tools</th><th class="num">in</th><th class="num">out</th><th class="num">cache rd</th><th class="num">cache wr</th><th class="num">cost</th><th style="width:140px"></th></tr></thead>
+      <table id="turns">
+        <thead><tr><th>time</th><th>type</th><th>model</th><th class="blur-sensitive">prompt / tools</th><th class="num">in</th><th class="num">out</th><th class="num">cache rd</th><th class="num">cache wr</th><th class="num">cost</th><th style="min-width:140px"></th></tr></thead>
         <tbody>
           ${turnRows(turns, Math.max(0, ...turns.map(t => t.cost_usd || 0)))}
         </tbody>
@@ -92,6 +92,19 @@ async function renderSession(root, id) {
     fold.querySelector('.chev').textContent = open ? '▾' : '▸';
     root.querySelectorAll(`tr[data-run="${fold.dataset.fold}"]`).forEach(r => { r.hidden = !open; });
   };
+  // Click a row to see its full prompt / tool arguments underneath; click again to close.
+  root.querySelector('#turns').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-ti]');
+    if (!tr || e.target.closest('a') || String(window.getSelection()).length) return;
+    const open = tr.nextElementSibling && tr.nextElementSibling.classList.contains('detail');
+    if (open) { tr.nextElementSibling.remove(); tr.querySelector('.chev').textContent = '▸'; return; }
+    const d = document.createElement('tr');
+    d.className = 'detail';
+    d.innerHTML = `<td></td><td colspan="9">${detailHtml(turns[Number(tr.dataset.ti)])}</td>`;
+    tr.after(d);
+    tr.querySelector('.chev').textContent = '▾';
+  });
+
   const folds = Array.from(root.querySelectorAll('tr.fold'));
   folds.forEach(f => f.addEventListener('click', () => setRun(f, !f.dataset.open)));
   root.querySelector('#show-empty').addEventListener('change', e => folds.forEach(f => setRun(f, e.target.checked)));
@@ -100,31 +113,37 @@ async function renderSession(root, id) {
 const isEmpty = (t, summary) => !summary && !t.model && !(t.input_tokens || t.output_tokens || t.cache_read_tokens
   || t.cache_create_5m_tokens || t.cache_create_1h_tokens);
 
+// One line per tool call: name plus its argument (the command, path, pattern, ...), full text on hover.
+const toolsHtml = tools => tools.map(x => `<div title="${fmt.htmlSafe(x.target || '')}"><span class="badge">${fmt.htmlSafe(x.name)}</span>${
+  x.target ? ` <span class="mono" style="font-size:11px">${fmt.htmlSafe(fmt.short(x.target.replace(/\s+/g, ' '), 160))}</span>` : ''}</div>`).join('');
+
 // Bar length is linear in cost, relative to the most expensive row on the page.
 const costBar = (usd, max) => !usd || !max ? '' :
   `<div class="costbar" title="${fmt.usd4(usd)}" style="height:8px;border-radius:2px;background:#4A9EFF;width:${Math.max(2, 100 * usd / max).toFixed(1)}%"></div>`;
 
-function rowHtml(t, summary, run, max) {
-  return `<tr${run == null ? '' : ` data-run="${run}" hidden`}>
-    <td class="mono">${(t.timestamp || '').slice(11,19)}</td>
+function rowHtml(t, summary, run, max, ti, empty) {
+  const tools = t.tool_calls_json ? JSON.parse(t.tool_calls_json) : [];
+  const attrs = (run == null ? '' : ` data-run="${run}" hidden`) + (empty ? '' : ` data-ti="${ti}" style="cursor:pointer" title="click to expand"`);
+  return `<tr${attrs}>
+    <td class="mono">${empty ? '' : '<span class="chev">▸</span> '}${(t.timestamp || '').slice(11,19)}</td>
     <td>${t.type}${t.is_sidechain ? ' <span class="badge">side</span>' : ''}</td>
     <td>${t.model ? `<span class="badge ${fmt.modelClass(t.model)}">${fmt.htmlSafe(fmt.modelShort(t.model))}</span>` : ''}</td>
-    <td class="blur-sensitive">${fmt.htmlSafe(summary)}</td>
+    <td class="blur-sensitive" style="max-width:520px;overflow-wrap:anywhere">${t.prompt_text ? fmt.htmlSafe(summary) : toolsHtml(tools)}</td>
     <td class="num">${fmt.int(t.input_tokens)}</td>
     <td class="num">${fmt.int(t.output_tokens)}</td>
     <td class="num">${fmt.int(t.cache_read_tokens)}</td>
     <td class="num">${fmt.int((t.cache_create_5m_tokens || 0) + (t.cache_create_1h_tokens || 0))}</td>
     <td class="num">${t.cost_usd == null ? '' : fmt.usd4(t.cost_usd)}</td>
-    <td>${costBar(t.cost_usd, max)}</td>
+    <td style="min-width:140px">${costBar(t.cost_usd, max)}</td>
   </tr>`;
 }
 
 // Rows with nothing beyond type + time collapse into one summary row per run of 2 or more.
 function turnRows(turns, max) {
-  const items = turns.map(t => {
+  const items = turns.map((t, i) => {
     const tools = t.tool_calls_json ? JSON.parse(t.tool_calls_json) : [];
     const summary = t.prompt_text ? fmt.short(t.prompt_text, 110) : tools.map(x => x.name).join(' · ');
-    return { t, summary, empty: isEmpty(t, summary) };
+    return { t, summary, empty: isEmpty(t, summary), i };
   });
   let out = '', i = 0, run = 0;
   while (i < items.length) {
@@ -137,12 +156,21 @@ function turnRows(turns, max) {
       const span = (group[0].t.timestamp || '').slice(11, 19) + '–' + (group[group.length - 1].t.timestamp || '').slice(11, 19);
       out += `<tr class="fold" data-fold="${run}" style="cursor:pointer"><td class="mono muted">${span}</td>
         <td colspan="9" class="muted"><span class="chev">▸</span> ${group.length} records with no content · ${fmt.htmlSafe(types)}</td></tr>`;
-      out += group.map(x => rowHtml(x.t, x.summary, run, max)).join('');
+      out += group.map(x => rowHtml(x.t, x.summary, run, max, x.i, x.empty)).join('');
       run++;
     } else {
-      out += items.slice(i, j).map(x => rowHtml(x.t, x.summary, null, max)).join('');
+      out += items.slice(i, j).map(x => rowHtml(x.t, x.summary, null, max, x.i, x.empty)).join('');
     }
     i = j;
   }
   return out;
+}
+
+// Everything stored for one record, untruncated and wrapped (tool arguments are kept to 500 chars by the scanner).
+function detailHtml(t) {
+  const tools = t.tool_calls_json ? JSON.parse(t.tool_calls_json) : [];
+  const block = (label, text) => `<div style="margin:4px 0 10px"><div class="muted" style="font-size:11px">${fmt.htmlSafe(label)}</div>
+    <pre class="blur-sensitive" style="margin:2px 0;white-space:pre-wrap;word-break:break-word">${fmt.htmlSafe(text)}</pre></div>`;
+  return (t.prompt_text ? block(`prompt · ${fmt.int(t.prompt_chars || t.prompt_text.length)} chars`, t.prompt_text) : '')
+    + tools.map(x => block(x.name, x.target || '(no argument recorded)')).join('');
 }
