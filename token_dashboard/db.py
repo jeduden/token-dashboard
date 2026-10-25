@@ -356,7 +356,7 @@ def session_turns(db_path, session_id: str) -> list:
       SELECT uuid, parent_uuid, type, timestamp, model, is_sidechain, agent_id,
              input_tokens, output_tokens, cache_read_tokens,
              cache_create_5m_tokens, cache_create_1h_tokens,
-             prompt_text, prompt_chars, tool_calls_json, project_slug, cwd
+             prompt_text, prompt_chars, tool_calls_json, project_slug, cwd, speed
         FROM messages
        WHERE session_id = ?
        ORDER BY timestamp ASC

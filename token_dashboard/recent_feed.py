@@ -39,7 +39,7 @@ def recent_feed(db_path, pricing, limit=100, since=None, until=None, sessions=No
     sql = f"""
       SELECT uuid, session_id, project_slug, cwd, type, timestamp, model, is_sidechain,
              input_tokens, output_tokens, cache_read_tokens,
-             cache_create_5m_tokens, cache_create_1h_tokens,
+             cache_create_5m_tokens, cache_create_1h_tokens, speed,
              prompt_text, tool_calls_json
         FROM messages
        WHERE type IN ('user', 'assistant') {rng} {sess_sql}
@@ -58,7 +58,7 @@ def recent_feed(db_path, pricing, limit=100, since=None, until=None, sessions=No
     messages, by_session = [], {}
     for r in rows:  # newest first
         is_asst = r["type"] == "assistant"
-        usd = cost_for(r["model"], r, pricing)["usd"] if is_asst and r["model"] else None
+        usd = cost_for(r["model"], r, pricing, per_request=True)["usd"] if is_asst and r["model"] else None
         ctx = _context(r) if is_asst else None
         m = {
             "uuid": r["uuid"], "session_id": r["session_id"],

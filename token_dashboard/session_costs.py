@@ -8,7 +8,7 @@ from .pricing import cost_for
 def add_turn_costs(turns: list, pricing: dict) -> list:
     """Set `cost_usd` on each assistant row of `session_turns` (None for other rows)."""
     for t in turns:
-        t["cost_usd"] = cost_for(t["model"], t, pricing)["usd"] if t["type"] == "assistant" and t["model"] else None
+        t["cost_usd"] = cost_for(t["model"], t, pricing, per_request=True)["usd"] if t["type"] == "assistant" and t["model"] else None
     return turns
 
 

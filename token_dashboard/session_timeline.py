@@ -27,7 +27,7 @@ def session_timeline(db_path, pricing, session_id: str) -> dict:
     with connect(db_path) as c:
         rows = [dict(r) for r in c.execute(
             """SELECT uuid, agent_id, type, timestamp, model, is_sidechain, input_tokens, output_tokens,
-                      cache_read_tokens, cache_create_5m_tokens, cache_create_1h_tokens,
+                      cache_read_tokens, cache_create_5m_tokens, cache_create_1h_tokens, speed,
                       prompt_text, prompt_chars, tool_calls_json, project_slug
                  FROM messages WHERE session_id = ? ORDER BY timestamp ASC""", (session_id,))]
         calls = {}
@@ -55,7 +55,7 @@ def session_timeline(db_path, pricing, session_id: str) -> dict:
             continue
         if r["type"] != "assistant":
             continue
-        cf = cost_for(r["model"], r, pricing) if r["model"] else {"usd": None, "breakdown": {}}
+        cf = cost_for(r["model"], r, pricing, per_request=True) if r["model"] else {"usd": None, "breakdown": {}}
         bd = cf["breakdown"]
         split = {"input": bd.get("input", 0), "output": bd.get("output", 0),
                  "cache_read": bd.get("cache_read", 0),

@@ -2,54 +2,40 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 from .db import connect
+from .pricer import Pricer, speed_of
 
 
 def load_pricing(path: Union[str, Path]) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-_SUFFIXES = re.compile(r"(\[[0-9a-z]+\]|-\d{8})+$")
+_PRICERS: dict = {}  # id(pricing) -> (pricing, Pricer); the tuple keeps the dict alive so the id stays valid
 
 
-def canonical_id(model: str) -> str:
-    """Strip a context-window tag (`[1m]`) and a date stamp (`-20250805`) from a model id."""
-    return _SUFFIXES.sub("", (model or "").strip().lower())
+def pricer_for(pricing: dict) -> Pricer:
+    hit = _PRICERS.get(id(pricing))
+    if hit is None or hit[0] is not pricing:
+        if len(_PRICERS) >= 8:
+            _PRICERS.clear()
+        hit = _PRICERS[id(pricing)] = (pricing, Pricer(pricing))
+    return hit[1]
 
 
-def _tier_from_name(model: str) -> Optional[str]:
-    m = (model or "").lower()
-    if "mythos" in m:  # priced like Fable
-        return "fable"
-    for tier in ("fable", "opus", "sonnet", "haiku"):
-        if tier in m:
-            return tier
-    return None
+def cost_for(model: str, usage, pricing: dict, per_request: bool = False) -> dict:
+    """Return {usd, estimated, breakdown}. usd=None when no tier match.
 
-
-def cost_for(model: str, usage: dict, pricing: dict) -> dict:
-    """Return {usd, estimated, breakdown}. usd=None when no tier match."""
-    rates = pricing["models"].get(model) or pricing["models"].get(canonical_id(model))
-    estimated = False
-    if rates is None:
-        tier = _tier_from_name(model or "")
-        if tier and tier in pricing["tier_fallback"]:
-            rates = pricing["tier_fallback"][tier]
-            estimated = True
-        else:
-            return {"usd": None, "estimated": True, "breakdown": {}}
-    bd = {
-        "input":           usage["input_tokens"]            * rates["input"]           / 1_000_000,
-        "output":          usage["output_tokens"]           * rates["output"]          / 1_000_000,
-        "cache_read":      usage["cache_read_tokens"]       * rates["cache_read"]      / 1_000_000,
-        "cache_create_5m": usage["cache_create_5m_tokens"]  * rates["cache_create_5m"] / 1_000_000,
-        "cache_create_1h": usage["cache_create_1h_tokens"]  * rates["cache_create_1h"] / 1_000_000,
-    }
-    return {"usd": round(sum(bd.values()), 6), "estimated": estimated, "breakdown": bd}
+    `usage` may be one request or a sum over many. Pass `per_request=True` only for a
+    single request: it then also applies the request's `speed` (fast mode) and its
+    long-context band. Summed usage is priced at the standard rates.
+    """
+    pr = pricer_for(pricing)
+    if per_request:
+        return pr.price(model, usage, band=None, speed=speed_of(usage))
+    return pr.price(model, usage)
 
 
 def get_plan(db_path: Union[str, Path], default: str = "api") -> str:

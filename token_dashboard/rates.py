@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional, Union
@@ -17,6 +18,23 @@ from typing import Optional, Union
 BUCKETS = ("input", "output", "cache_read", "cache_create_5m", "cache_create_1h")
 SECTIONS = ("models", "tier_fallback", "plans", "classes", "sources")
 OVERRIDE_ENV = "TOKEN_DASHBOARD_PRICING"
+
+_SUFFIXES = re.compile(r"(\[[0-9a-z]+\]|-\d{8})+$")
+
+
+def canonical_id(model: str) -> str:
+    """Strip a context-window tag (`[1m]`) and a date stamp (`-20250805`) from a model id."""
+    return _SUFFIXES.sub("", (model or "").strip().lower())
+
+
+def tier_from_name(model: str) -> Optional[str]:
+    m = (model or "").lower()
+    if "mythos" in m:  # priced like Fable
+        return "fable"
+    for tier in ("fable", "opus", "sonnet", "haiku"):
+        if tier in m:
+            return tier
+    return None
 
 
 def default_override_path() -> Path:

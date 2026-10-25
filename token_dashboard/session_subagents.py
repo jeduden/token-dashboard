@@ -33,7 +33,7 @@ def session_subagents(db_path, pricing, session_id: str) -> list:
     with connect(db_path) as c:
         rows = [dict(r) for r in c.execute(
             """SELECT agent_id, type, timestamp, model, input_tokens, output_tokens, cache_read_tokens,
-                      cache_create_5m_tokens, cache_create_1h_tokens, tool_calls_json,
+                      cache_create_5m_tokens, cache_create_1h_tokens, speed, tool_calls_json,
                       CASE WHEN type = 'user' THEN substr(prompt_text, 1, ?) END AS head
                  FROM messages WHERE session_id = ? AND agent_id IS NOT NULL
                 ORDER BY timestamp""", (PROMPT_HEAD, session_id))]
@@ -57,7 +57,7 @@ def session_subagents(db_path, pricing, session_id: str) -> list:
                                + r["cache_create_5m_tokens"] + r["cache_create_1h_tokens"])
         if r["model"]:
             a["models"].add(r["model"])
-            a["cost_usd"] += cost_for(r["model"], r, pricing)["usd"] or 0.0
+            a["cost_usd"] += cost_for(r["model"], r, pricing, per_request=True)["usd"] or 0.0
         try:
             for t in json.loads(r["tool_calls_json"] or "[]"):
                 if t.get("name"):
