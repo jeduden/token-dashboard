@@ -52,6 +52,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_project   ON messages(project_slug);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_model     ON messages(model);
 CREATE INDEX IF NOT EXISTS idx_messages_msgid     ON messages(session_id, message_id);
+-- one conversation thread (session + agent) per lookup; the expression matches COALESCE(agent_id,'') in the cost queries
+CREATE INDEX IF NOT EXISTS idx_messages_thread    ON messages(session_id, COALESCE(agent_id,''), type, timestamp);
 
 CREATE TABLE IF NOT EXISTS tool_calls (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
