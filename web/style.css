@@ -137,6 +137,7 @@ td.mono { font-family: var(--mono); color: var(--muted); }
   border: 1px solid var(--border);
   font-family: var(--mono); font-weight: 500;
 }
+.badge.fable   { color: var(--warn, #e0a030); border-color: rgba(224,160,48,0.3); background: rgba(224,160,48,0.08); }
 .badge.opus    { color: var(--accent-2); border-color: rgba(124,92,255,0.3); background: rgba(124,92,255,0.08); }
 .badge.sonnet  { color: var(--accent);   border-color: rgba(74,158,255,0.3); background: rgba(74,158,255,0.08); }
 .badge.haiku   { color: var(--good);     border-color: rgba(63,182,139,0.3); background: rgba(63,182,139,0.08); }

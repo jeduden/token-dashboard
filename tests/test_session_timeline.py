@@ -3,12 +3,11 @@ import sqlite3
 import tempfile
 import unittest
 
+from tests.pricing_fixture import PRICING
 from token_dashboard.db import init_db
-from token_dashboard.pricing import load_pricing
 from token_dashboard.session_timeline import session_timeline
 from token_dashboard.session_costs import add_turn_costs, add_session_costs
 from token_dashboard.db import recent_sessions, session_turns
-from token_dashboard.server import PRICING_JSON
 
 
 def _a(c, uuid, ts, inp, out, cread, ccre, tools=None, side=0):
@@ -23,7 +22,7 @@ class TimelineTests(unittest.TestCase):
     def setUp(self):
         self.db = os.path.join(tempfile.mkdtemp(), "t.db")
         init_db(self.db)
-        self.pricing = load_pricing(PRICING_JSON)
+        self.pricing = PRICING
         with sqlite3.connect(self.db) as c:
             c.execute("INSERT INTO messages (uuid, session_id, project_slug, type, timestamp, prompt_text, prompt_chars)"
                       " VALUES ('u','S','p','user','2026-01-01T00:00:00Z','do it',5)")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Optional, Union
 
@@ -12,9 +13,19 @@ def load_pricing(path: Union[str, Path]) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+_SUFFIXES = re.compile(r"(\[[0-9a-z]+\]|-\d{8})+$")
+
+
+def canonical_id(model: str) -> str:
+    """Strip a context-window tag (`[1m]`) and a date stamp (`-20250805`) from a model id."""
+    return _SUFFIXES.sub("", (model or "").strip().lower())
+
+
 def _tier_from_name(model: str) -> Optional[str]:
     m = (model or "").lower()
-    for tier in ("opus", "sonnet", "haiku"):
+    if "mythos" in m:  # priced like Fable
+        return "fable"
+    for tier in ("fable", "opus", "sonnet", "haiku"):
         if tier in m:
             return tier
     return None
@@ -22,7 +33,7 @@ def _tier_from_name(model: str) -> Optional[str]:
 
 def cost_for(model: str, usage: dict, pricing: dict) -> dict:
     """Return {usd, estimated, breakdown}. usd=None when no tier match."""
-    rates = pricing["models"].get(model)
+    rates = pricing["models"].get(model) or pricing["models"].get(canonical_id(model))
     estimated = False
     if rates is None:
         tier = _tier_from_name(model or "")

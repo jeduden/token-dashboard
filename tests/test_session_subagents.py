@@ -4,10 +4,9 @@ import sqlite3
 import tempfile
 import unittest
 
+from tests.pricing_fixture import PRICING
 from token_dashboard.db import init_db
-from token_dashboard.pricing import load_pricing
 from token_dashboard.scanner import scan_dir
-from token_dashboard.server import PRICING_JSON
 from token_dashboard.session_subagents import session_subagents
 
 
@@ -28,7 +27,7 @@ class SubagentTests(unittest.TestCase):
         os.makedirs(proj)
         self.db = os.path.join(root, "t.db")
         init_db(self.db)
-        self.pricing = load_pricing(PRICING_JSON)
+        self.pricing = PRICING
         lines = [
             rec(uuid="u0", type="user", timestamp="2026-01-01T00:00:00Z", message={"role": "user", "content": "go"}),
             rec(uuid="a0", type="assistant", timestamp="2026-01-01T00:00:01Z", message={

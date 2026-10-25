@@ -14,6 +14,7 @@ export const fmt = {
   htmlSafe: s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
   modelClass: m => {
     const s = (m || '').toLowerCase();
+    if (s.includes('fable') || s.includes('mythos')) return 'fable';
     if (s.includes('opus'))   return 'opus';
     if (s.includes('sonnet')) return 'sonnet';
     if (s.includes('haiku'))  return 'haiku';

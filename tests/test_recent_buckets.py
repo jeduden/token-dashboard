@@ -3,10 +3,9 @@ import sqlite3
 import tempfile
 import unittest
 
+from tests.pricing_fixture import PRICING
 from token_dashboard.db import init_db
-from token_dashboard.pricing import load_pricing
 from token_dashboard.recent_buckets import message_buckets
-from token_dashboard.server import PRICING_JSON
 
 
 def _ins(c, uuid, sid, ts, typ="assistant", inp=10, out=5):
@@ -20,7 +19,7 @@ class BucketTests(unittest.TestCase):
     def setUp(self):
         self.db = os.path.join(tempfile.mkdtemp(), "t.db")
         init_db(self.db)
-        self.pricing = load_pricing(PRICING_JSON)
+        self.pricing = PRICING
         with sqlite3.connect(self.db) as c:
             _ins(c, "1", "A", "2026-01-01T10:00:00Z")
             _ins(c, "2", "A", "2026-01-01T10:30:00Z", typ="user", inp=0, out=0)

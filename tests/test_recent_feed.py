@@ -3,10 +3,9 @@ import sqlite3
 import tempfile
 import unittest
 
+from tests.pricing_fixture import PRICING
 from token_dashboard.db import init_db
-from token_dashboard.pricing import load_pricing
 from token_dashboard.recent_feed import recent_feed
-from token_dashboard.server import PRICING_JSON
 
 
 def _asst(c, uuid, sid, ts, inp, out, cread, tools=None):
@@ -21,7 +20,7 @@ class RecentFeedTests(unittest.TestCase):
     def setUp(self):
         self.db = os.path.join(tempfile.mkdtemp(), "t.db")
         init_db(self.db)
-        self.pricing = load_pricing(PRICING_JSON)
+        self.pricing = PRICING
         with sqlite3.connect(self.db) as c:
             c.execute("INSERT INTO messages (uuid, session_id, project_slug, type, timestamp, prompt_text)"
                       " VALUES ('u1','A','p','user','2026-01-01T00:00:00Z','hello')")
