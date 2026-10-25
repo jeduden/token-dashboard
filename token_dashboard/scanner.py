@@ -18,12 +18,12 @@ INSERT OR REPLACE INTO messages (
   uuid, parent_uuid, session_id, project_slug, cwd, git_branch, cc_version, entrypoint,
   type, is_sidechain, agent_id, timestamp, model, stop_reason, prompt_id, message_id,
   input_tokens, output_tokens, cache_read_tokens, cache_create_5m_tokens, cache_create_1h_tokens,
-  prompt_text, prompt_chars, tool_calls_json
+  prompt_text, prompt_chars, tool_calls_json, speed
 ) VALUES (
   :uuid, :parent_uuid, :session_id, :project_slug, :cwd, :git_branch, :cc_version, :entrypoint,
   :type, :is_sidechain, :agent_id, :timestamp, :model, :stop_reason, :prompt_id, :message_id,
   :input_tokens, :output_tokens, :cache_read_tokens, :cache_create_5m_tokens, :cache_create_1h_tokens,
-  :prompt_text, :prompt_chars, :tool_calls_json
+  :prompt_text, :prompt_chars, :tool_calls_json, :speed
 )
 """
 
@@ -56,6 +56,7 @@ def _usage(rec: dict) -> dict:
         "cache_read_tokens":      int(u.get("cache_read_input_tokens") or 0),
         "cache_create_5m_tokens": int(cc.get("ephemeral_5m_input_tokens") or 0),
         "cache_create_1h_tokens": int(cc.get("ephemeral_1h_input_tokens") or 0),
+        "speed":                  u.get("speed") or None,
     }
 
 

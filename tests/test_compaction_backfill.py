@@ -99,7 +99,7 @@ class BackfillTests(ScanBase):
         self.assertEqual(self.bytes_read(), done)
         # one marker per backfill (compactions, subagents): nothing is re-armed on an up-to-date database
         self.assertEqual(sorted(r["k"] for r in self.q("SELECT k FROM meta")),
-                         ["compactions_backfill_v1", "subagents_backfill_v1"])
+                         ["compactions_backfill_v1", "speed_backfill_v1", "subagents_backfill_v1"])
 
     def test_data_stays_visible_while_the_replay_runs(self):
         self.build_legacy()

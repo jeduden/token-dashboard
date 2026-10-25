@@ -10,6 +10,7 @@ from typing import Optional, Union
 
 from .schema_compactions import ensure_compactions
 from .schema_subagents import ensure_subagents
+from .schema_speed import ensure_speed
 
 DB_TIMEOUT_S = 10.0  # wait this long on a locked db before OperationalError
 
@@ -45,7 +46,8 @@ CREATE TABLE IF NOT EXISTS messages (
   cache_create_1h_tokens  INTEGER NOT NULL DEFAULT 0,
   prompt_text             TEXT,
   prompt_chars            INTEGER,
-  tool_calls_json         TEXT
+  tool_calls_json         TEXT,
+  speed                   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session   ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_project   ON messages(project_slug);
@@ -102,6 +104,7 @@ def init_db(path: Union[str, Path]) -> None:
         c.executescript(SCHEMA)
         ensure_compactions(c)   # compactions table + one-time replay marker
         ensure_subagents(c)     # subagent_spawns table + one-time replay marker
+        ensure_speed(c)         # messages.speed column + one-time replay marker
         c.commit()
     finally:
         c.close()
