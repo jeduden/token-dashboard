@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .schema_compactions import ensure_compactions
+from .schema_subagents import ensure_subagents
 
 DB_TIMEOUT_S = 10.0  # wait this long on a locked db before OperationalError
 
@@ -98,6 +99,7 @@ def init_db(path: Union[str, Path]) -> None:
         _migrate_add_tool_use_id(c)
         c.executescript(SCHEMA)
         ensure_compactions(c)   # compactions table + one-time replay marker
+        ensure_subagents(c)     # subagent_spawns table + one-time replay marker
         c.commit()
     finally:
         c.close()
@@ -318,7 +320,10 @@ def recent_sessions(db_path, limit: int = 20, since=None, until=None) -> list:
       SELECT session_id, project_slug,
              MIN(timestamp) AS started, MAX(timestamp) AS ended,
              SUM(CASE WHEN type='user' THEN 1 ELSE 0 END) AS turns,
-             SUM(input_tokens)+SUM(output_tokens) AS tokens
+             SUM(input_tokens)+SUM(output_tokens) AS tokens,
+             SUM(CASE WHEN is_sidechain=0 THEN input_tokens+output_tokens ELSE 0 END) AS tokens_main,
+             SUM(CASE WHEN is_sidechain=1 THEN input_tokens+output_tokens ELSE 0 END) AS tokens_sub,
+             SUM(CASE WHEN type='user' AND is_sidechain=0 AND prompt_text IS NOT NULL THEN 1 ELSE 0 END) AS prompts
         FROM messages m
        WHERE 1=1 {rng}
        GROUP BY session_id

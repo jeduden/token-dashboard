@@ -66,6 +66,12 @@ class TimelineTests(unittest.TestCase):
         self.assertAlmostEqual(sum(t["cost_usd"] or 0 for t in turns), total, places=5)
         rows = add_session_costs(self.db, self.pricing, recent_sessions(self.db))
         self.assertAlmostEqual(rows[0]["cost_usd"], total, places=5)
+        r = rows[0]
+        self.assertAlmostEqual(r["cost_main_usd"] + r["cost_sub_usd"], r["cost_usd"], places=6)
+        self.assertGreater(r["cost_sub_usd"], 0)               # the fixture has one sidechain turn
+        self.assertEqual(r["tokens"], r["tokens_main"] + r["tokens_sub"])
+        self.assertEqual(r["tokens_sub"], 55)                   # 5 in + 50 out on the sidechain turn
+        self.assertEqual(r["prompts"], 1)                       # one real prompt, not tool results
 
     def test_unknown_session_is_empty(self):
         r = session_timeline(self.db, self.pricing, "nope")

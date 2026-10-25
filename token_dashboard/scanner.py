@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple, Union
 
 from .db import connect
 from .compaction_parse import store_compaction
+from .subagent_parse import store_spawns
 
 
 CHECKPOINT_BYTES = 8 * 1024 * 1024
@@ -268,6 +269,7 @@ def scan_file(path: Path, project_slug: str, conn, start_byte: int = 0,
                 continue
             if rec.get("type") == "system":
                 store_compaction(conn, rec, project_slug)
+            store_spawns(conn, rec, msg["session_id"])
             call_ids = [t["tool_use_id"] for t in tlist if t.get("tool_use_id")]
             if msg["message_id"]:
                 _evict_prior_snapshots(conn, msg["session_id"], msg["message_id"],

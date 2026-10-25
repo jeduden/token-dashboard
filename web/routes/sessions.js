@@ -1,5 +1,8 @@
 import { api, fmt } from '/web/app.js';
 import { timelineHtml, mountTimeline } from '/web/routes/session-charts.js';
+import { agentsHtml, mountAgents, agentLabels } from '/web/routes/session-agents.js';
+
+let labels = {};  // agent_id -> label of the session being shown
 
 export default async function (root) {
   const id = decodeURIComponent((/^#?\/sessions\/([^/?]+)/.exec(location.hash) || [])[1] || '');
@@ -13,17 +16,25 @@ async function renderList(root) {
   root.innerHTML = `
     <div class="card">
       <h2>Sessions</h2>
+      <p class="muted" style="font-size:12px;margin:0 0 6px">One row per session. <span style="color:#4A9EFF">main</span> = the agent you talk to,
+        <span style="color:#7C5CFF">sub</span> = every subagent it started. Tokens are input + output (no cache); costs are estimates including cache.
+        Prompts are your messages, not tool results.</p>
       <table>
-        <thead><tr><th>started</th><th>project</th><th class="num">turns</th><th class="num">tokens</th><th class="num">cost</th><th style="min-width:120px"></th><th>session</th></tr></thead>
+        <thead><tr><th>started</th><th>project</th><th class="num">prompts</th>
+          <th class="num">tokens main</th><th class="num">tokens sub</th>
+          <th class="num">cost main</th><th class="num">cost sub</th><th class="num">cost</th><th style="min-width:140px"></th><th>session</th></tr></thead>
         <tbody>
           ${list.map(s => `
             <tr>
               <td class="mono">${fmt.ts(s.started)}</td>
               <td title="${fmt.htmlSafe(s.project_slug)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</td>
-              <td class="num">${fmt.int(s.turns)}</td>
-              <td class="num">${fmt.int(s.tokens)}</td>
+              <td class="num">${fmt.int(s.prompts)}</td>
+              <td class="num">${fmt.compact(s.tokens_main)}</td>
+              <td class="num">${s.tokens_sub ? fmt.compact(s.tokens_sub) : '—'}</td>
+              <td class="num">${fmt.usd(s.cost_main_usd)}</td>
+              <td class="num">${s.cost_sub_usd ? fmt.usd(s.cost_sub_usd) : '—'}</td>
               <td class="num">${fmt.usd(s.cost_usd)}</td>
-              <td style="min-width:120px">${costBar(s.cost_usd, maxCost)}</td>
+              <td style="min-width:140px">${splitBar(s.cost_main_usd, s.cost_sub_usd, maxCost)}</td>
               <td><a href="#/sessions/${encodeURIComponent(s.session_id)}" class="mono">${fmt.htmlSafe(s.session_id.slice(0,8))}…</a></td>
             </tr>`).join('')}
         </tbody>
@@ -32,11 +43,13 @@ async function renderList(root) {
 }
 
 async function renderSession(root, id) {
-  const [turns, tl] = await Promise.all([
+  const [turns, tl, agents] = await Promise.all([
     api('/api/sessions/' + encodeURIComponent(id)),
     // The charts are an extra: if this endpoint is missing (e.g. a dashboard started before it existed), still show the turns.
     api('/api/session-timeline?id=' + encodeURIComponent(id)).catch(() => null),
+    api('/api/session-subagents?id=' + encodeURIComponent(id)).catch(() => []),
   ]);
+  labels = agentLabels(agents);
   let totalIn = 0, totalOut = 0, totalCacheRd = 0, totalCost = 0;
   let modelCounts = {};
   for (const t of turns) {
@@ -74,6 +87,8 @@ async function renderSession(root, id) {
 
     <div style="margin-top:16px">${tl ? timelineHtml(tl) : '<div class="card"><p class="muted">Cost charts unavailable (/api/session-timeline failed). Restart the dashboard to pick up the latest server code.</p></div>'}</div>
 
+    ${agentsHtml(agents)}
+
     <div class="card" style="margin-top:16px">
       <h3 style="display:flex;align-items:center"><span>Turn-by-turn</span><span class="spacer"></span>
         <label class="muted" style="font-size:12px;font-weight:400"><input type="checkbox" id="show-empty"> show empty rows</label></h3>
@@ -85,6 +100,7 @@ async function renderSession(root, id) {
       </table>
     </div>`;
   if (tl) mountTimeline(root, tl);
+  mountAgents(root, agents);
 
   // Empty rows are folded into runs; a fold row opens its own run, the checkbox opens all of them.
   const setRun = (fold, open) => {
@@ -117,6 +133,11 @@ const isEmpty = (t, summary) => !summary && !t.model && !(t.input_tokens || t.ou
 const toolsHtml = tools => tools.map(x => `<div title="${fmt.htmlSafe(x.target || '')}"><span class="badge">${fmt.htmlSafe(x.name)}</span>${
   x.target ? ` <span class="mono" style="font-size:11px">${fmt.htmlSafe(fmt.short(x.target.replace(/\s+/g, ' '), 160))}</span>` : ''}</div>`).join('');
 
+// Stacked bar: main agent (blue) then subagents (purple), total length relative to the biggest session.
+const splitBar = (main, sub, max) => !max || !(main || sub) ? '' :
+  `<div title="main ${fmt.usd4(main)} · sub ${fmt.usd4(sub)}" style="display:flex;height:8px;width:${Math.max(2, 100 * (main + sub) / max).toFixed(1)}%;border-radius:2px;overflow:hidden">
+    <div style="flex:${main || 0};background:#4A9EFF"></div><div style="flex:${sub || 0};background:#7C5CFF"></div></div>`;
+
 // Bar length is linear in cost, relative to the most expensive row on the page.
 const costBar = (usd, max) => !usd || !max ? '' :
   `<div class="costbar" title="${fmt.usd4(usd)}" style="height:8px;border-radius:2px;background:#4A9EFF;width:${Math.max(2, 100 * usd / max).toFixed(1)}%"></div>`;
@@ -126,7 +147,7 @@ function rowHtml(t, summary, run, max, ti, empty) {
   const attrs = (run == null ? '' : ` data-run="${run}" hidden`) + (empty ? '' : ` data-ti="${ti}" style="cursor:pointer" title="click to expand"`);
   return `<tr${attrs}>
     <td class="mono">${empty ? '' : '<span class="chev">▸</span> '}${(t.timestamp || '').slice(11,19)}</td>
-    <td>${t.type}${t.is_sidechain ? ' <span class="badge">side</span>' : ''}</td>
+    <td>${t.type}${t.is_sidechain ? ` <span class="badge" title="${fmt.htmlSafe(t.agent_id || '')}">${fmt.htmlSafe(labels[t.agent_id] || 'side')}</span>` : ''}</td>
     <td>${t.model ? `<span class="badge ${fmt.modelClass(t.model)}">${fmt.htmlSafe(fmt.modelShort(t.model))}</span>` : ''}</td>
     <td class="blur-sensitive" style="max-width:520px;overflow-wrap:anywhere">${t.prompt_text ? fmt.htmlSafe(summary) : toolsHtml(tools)}</td>
     <td class="num">${fmt.int(t.input_tokens)}</td>

@@ -32,6 +32,7 @@ from .recent_feed import recent_feed
 from .recent_buckets import message_buckets
 from .session_timeline import session_timeline
 from .session_costs import add_turn_costs, add_session_costs
+from .session_subagents import session_subagents
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -162,6 +163,11 @@ def build_handler(db_path: str, projects_dir: str):
                 if not sid:
                     return _send_json(self, {"error": "id is required"}, 400)
                 return _send_json(self, session_timeline(db_path, pricing, sid))
+            if path == "/api/session-subagents":
+                sid = qs.get("id", [""])[0]
+                if not sid:
+                    return _send_json(self, {"error": "id is required"}, 400)
+                return _send_json(self, session_subagents(db_path, pricing, sid))
             if path == "/api/recent/buckets":
                 sids = [x for x in qs.get("sessions", [""])[0].split(",") if x]
                 try:
