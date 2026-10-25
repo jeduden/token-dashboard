@@ -75,6 +75,25 @@ class ServerTests(unittest.TestCase):
             self._get("/api/whatif?compare=nope")
         self.assertEqual(cm.exception.code, 400)
 
+    def test_compare_adds_alt_costs_to_aggregate_endpoints(self):
+        self.assertIn("alt_costs", json.loads(self._get("/api/overview?compare=openai")))
+        for path in ("/api/by-model", "/api/sessions"):
+            rows = json.loads(self._get(path + "?compare=openai"))
+            self.assertTrue(rows, path)
+            self.assertIn("alt_costs", rows[0], path)
+        body = json.loads(self._get("/api/recent/buckets?compare=openai"))
+        self.assertEqual(body["targets"], ["openai"])
+        self.assertTrue(all("alt_costs" in b for b in body["buckets"]))
+
+    def test_no_compare_means_no_alt_costs(self):
+        self.assertNotIn("alt_costs", json.loads(self._get("/api/overview")))
+
+    def test_bad_compare_is_a_400_everywhere(self):
+        for path in ("/api/overview", "/api/by-model", "/api/sessions", "/api/recent/buckets"):
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self._get(path + "?compare=nope")
+            self.assertEqual(cm.exception.code, 400, path)
+
     def test_pricing_targets_json(self):
         body = json.loads(self._get("/api/pricing/targets"))
         self.assertEqual([v["id"] for v in body["vendors"]], ["anthropic", "openai", "kimi"])

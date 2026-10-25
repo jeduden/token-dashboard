@@ -19,6 +19,7 @@ from .db import (
 from .pricing import cost_for, get_plan, set_plan
 from .rates import load_with_override
 from .pricing_targets import pricing_targets
+from .whatif import parse_targets
 from .whatif_report import whatif_report
 from .repos import repo_summary, annotate_projects
 from .tips import all_tips, dismiss_tip
@@ -127,18 +128,21 @@ def build_handler(db_path: str, projects_dir: str):
             path = url.path
             since = qs.get("since", [None])[0]
             until = qs.get("until", [None])[0]
+            try:
+                targets = parse_targets(pricing, qs.get("compare", [""])[0])
+            except ValueError as e:
+                return _send_json(self, {"error": str(e)}, 400)
             if path in ("/", "/index.html"):
                 return _serve_static(self, "index.html")
             if path.startswith("/web/"):
                 return _serve_static(self, path[5:])
             if path == "/api/overview":
                 totals = overview_totals(db_path, since, until)
-                cost_usd = 0.0
-                for m in model_breakdown(db_path, since, until):
-                    c = cost_for(m["model"], m, pricing)
-                    if c["usd"] is not None:
-                        cost_usd += c["usd"]
-                totals["cost_usd"] = round(cost_usd, 4)
+                rep = whatif_report(db_path, pricing, "total", targets, since, until)["total"]
+                totals["cost_usd"] = round(rep["cost_usd"], 4)
+                if targets:
+                    totals["alt_costs"] = rep["alt_costs"]
+                    totals["alt_unpriced_tokens"] = rep["alt_unpriced_tokens"]
                 return _send_json(self, totals)
             if path == "/api/prompts":
                 limit = _clamp_limit(qs.get("limit", ["50"])[0], 50)
@@ -162,7 +166,7 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, add_session_costs(db_path, pricing, recent_sessions(
                     db_path, limit=_clamp_limit(qs.get("limit", ["20"])[0], 20),
                     since=since, until=until,
-                )))
+                ), targets))
             if path == "/api/session-timeline":
                 sid = qs.get("id", [""])[0]
                 if not sid:
@@ -188,7 +192,7 @@ def build_handler(db_path: str, projects_dir: str):
                 try:
                     return _send_json(self, message_buckets(
                         db_path, pricing, qs.get("bucket", ["day"])[0] or "day",
-                        since, until, sids or None))
+                        since, until, sids or None, targets))
                 except ValueError as e:
                     return _send_json(self, {"error": str(e)}, 400)
             if path == "/api/recent":
@@ -211,10 +215,15 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, compactions_report(db_path, pricing, since, until))
             if path == "/api/by-model":
                 rows = model_breakdown(db_path, since, until)
+                priced = {x["key"]: x for x in whatif_report(
+                    db_path, pricing, "model", targets, since, until, limit=1000)["rows"]}
                 for r in rows:
-                    c = cost_for(r["model"], r, pricing)
-                    r["cost_usd"] = c["usd"]
-                    r["cost_estimated"] = c["estimated"]
+                    x = priced.get(r["model"])
+                    r["cost_usd"] = x["cost_usd"] if x else None
+                    r["cost_estimated"] = x["estimated"] if x else True
+                    if targets:
+                        r["alt_costs"] = x["alt_costs"] if x else dict.fromkeys(targets)
+                        r["alt_unpriced_tokens"] = x["alt_unpriced_tokens"] if x else dict.fromkeys(targets, 0)
                 return _send_json(self, rows)
             if path.startswith("/api/sessions/"):
                 sid = path.rsplit("/", 1)[1]

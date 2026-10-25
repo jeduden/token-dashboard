@@ -19,6 +19,8 @@ from typing import Optional
 
 from .rates import BUCKETS, canonical_id, tier_from_name
 
+# a request's prompt size, for grouping rows by long-context band in SQL
+PROMPT_SQL = "(input_tokens + cache_read_tokens + cache_create_5m_tokens + cache_create_1h_tokens)"
 USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens",
               "cache_create_5m_tokens", "cache_create_1h_tokens")
 
@@ -90,6 +92,8 @@ class Pricer:
     def band_sql(self, prompt_expr: str) -> tuple:
         """(CASE expression, params) yielding the long-context band of a request's prompt size."""
         ts = list(reversed(self.thresholds))
+        if not ts:
+            return "0", []
         whens = "".join(f" WHEN {prompt_expr} > ? THEN {len(ts) - i}" for i in range(len(ts)))
         return f"CASE{whens} ELSE 0 END", ts
 

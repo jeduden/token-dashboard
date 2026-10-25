@@ -29,12 +29,23 @@ def parse_targets(pricing: dict, raw) -> list:
             ids.append(t)
     if len(ids) > MAX_TARGETS:
         raise ValueError(f"at most {MAX_TARGETS} comparison targets")
-    vendors = {m["vendor"] for m in pricing["models"].values()}
+    vendors = {m.get("vendor") for m in pricing["models"].values()}
     for t in ids:
         ok = t in vendors or (t.startswith("model:") and t[6:] in pricing["models"])
         if not ok:
             raise ValueError(f"unknown comparison target {t!r}")
     return ids
+
+
+def combine(results: list, targets: list) -> dict:
+    """Sum the `alt_*` fields of several `WhatIf.result`s (e.g. a session's main and sub threads)."""
+    alt, priced, unpriced = {}, {}, {}
+    for t in targets:
+        priced[t] = sum(r["alt_priced_tokens"][t] for r in results)
+        unpriced[t] = sum(r["alt_unpriced_tokens"][t] for r in results)
+        alt[t] = (round(sum(r["alt_costs"][t] or 0.0 for r in results), 6)
+                  if priced[t] or not unpriced[t] else None)
+    return {"alt_costs": alt, "alt_unpriced_tokens": unpriced, "alt_priced_tokens": priced}
 
 
 class WhatIf:
@@ -81,5 +92,5 @@ class WhatIf:
             "cost_usd": round(actual, 6), "estimated": estimated, "tokens": tokens,
             "by_bucket": {b: round(v, 6) for b, v in by_bucket.items()},
             "alt_costs": {t: (round(alt[t], 6) if priced[t] or not unpriced[t] else None) for t in self.targets},
-            "alt_unpriced_tokens": unpriced,
+            "alt_unpriced_tokens": unpriced, "alt_priced_tokens": priced,
         }

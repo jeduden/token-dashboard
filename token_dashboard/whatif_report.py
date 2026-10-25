@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 from .db import connect, best_project_name, _range_clause
-from .pricer import Pricer
+from .pricer import Pricer, PROMPT_SQL
 from .whatif import WhatIf, parse_targets
 
 # group -> SQL expression (internal constants; never built from request input)
 GROUPS = {"total": "'all'", "day": "substr(timestamp, 1, 10)", "project": "project_slug",
           "session": "session_id", "model": "model"}
-PROMPT = "(input_tokens + cache_read_tokens + cache_create_5m_tokens + cache_create_1h_tokens)"
 DEFAULT_LIMIT = 200
 
 
@@ -18,7 +17,7 @@ def whatif_report(db_path, pricing, group="total", compare="", since=None, until
         raise ValueError("group must be one of " + ", ".join(GROUPS))
     targets = parse_targets(pricing, compare)
     pricer = Pricer(pricing)
-    band_sql, band_args = pricer.band_sql(PROMPT)
+    band_sql, band_args = pricer.band_sql(PROMPT_SQL)
     rng, rng_args = _range_clause(since, until)
     # `band_sql` and the group expression are internal; thresholds and the range are bound.
     sql = f"""
