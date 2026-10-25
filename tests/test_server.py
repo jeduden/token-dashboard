@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 
 from token_dashboard.db import init_db
@@ -63,6 +64,20 @@ class ServerTests(unittest.TestCase):
         body = json.loads(self._get("/api/projects"))
         self.assertIsInstance(body, list)
         self.assertEqual(body[0]["project_slug"], "p")
+
+    def test_whatif_json(self):
+        body = json.loads(self._get("/api/whatif?group=model&compare=openai,kimi"))
+        self.assertEqual(body["targets"], ["openai", "kimi"])
+        self.assertEqual(set(body["total"]["alt_costs"]), {"openai", "kimi"})
+
+    def test_whatif_rejects_unknown_target_with_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._get("/api/whatif?compare=nope")
+        self.assertEqual(cm.exception.code, 400)
+
+    def test_pricing_targets_json(self):
+        body = json.loads(self._get("/api/pricing/targets"))
+        self.assertEqual([v["id"] for v in body["vendors"]], ["anthropic", "openai", "kimi"])
 
     def test_plan_json(self):
         body = json.loads(self._get("/api/plan"))

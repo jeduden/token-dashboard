@@ -19,6 +19,7 @@ from .db import (
 from .pricing import cost_for, get_plan, set_plan
 from .rates import load_with_override
 from .pricing_targets import pricing_targets
+from .whatif_report import whatif_report
 from .repos import repo_summary, annotate_projects
 from .tips import all_tips, dismiss_tip
 from .scanner import scan_dir
@@ -169,6 +170,14 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, session_timeline(db_path, pricing, sid))
             if path == "/api/pricing/targets":
                 return _send_json(self, pricing_targets(pricing))
+            if path == "/api/whatif":
+                try:
+                    return _send_json(self, whatif_report(
+                        db_path, pricing, qs.get("group", ["total"])[0] or "total",
+                        qs.get("compare", [""])[0], since, until,
+                        _clamp_limit(qs.get("limit", ["200"])[0], 200)))
+                except ValueError as e:
+                    return _send_json(self, {"error": str(e)}, 400)
             if path == "/api/session-subagents":
                 sid = qs.get("id", [""])[0]
                 if not sid:

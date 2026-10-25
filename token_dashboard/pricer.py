@@ -73,6 +73,26 @@ class Pricer:
                 use = lc
         return {**{b: use[b] for b in BUCKETS}, "estimated": estimated, "model": mid}
 
+    def class_of(self, model: str) -> Optional[str]:
+        """fable / opus / sonnet / haiku, from the table when the model is listed, else from its name."""
+        models = self.pricing["models"]
+        e = models.get(model) or models.get(canonical_id(model))
+        return (e or {}).get("class") or tier_from_name(model)
+
+    def resolve(self, model: str, target: str) -> Optional[str]:
+        """The model that stands in for `model` on `target` (a vendor id, or `model:<id>`), or None."""
+        models = self.pricing["models"]
+        if target.startswith("model:"):
+            return target[6:] if target[6:] in models else None
+        cls = self.pricing.get("classes", {}).get(self.class_of(model) or "", {})
+        return cls.get(target)
+
+    def band_sql(self, prompt_expr: str) -> tuple:
+        """(CASE expression, params) yielding the long-context band of a request's prompt size."""
+        ts = list(reversed(self.thresholds))
+        whens = "".join(f" WHEN {prompt_expr} > ? THEN {len(ts) - i}" for i in range(len(ts)))
+        return f"CASE{whens} ELSE 0 END", ts
+
     def price(self, model: str, usage, band: Optional[int] = 0, speed: Optional[str] = None) -> dict:
         """{usd, estimated, breakdown}. `band=None` derives it from the usage's prompt size."""
         if band is None:
