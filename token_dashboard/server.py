@@ -115,6 +115,8 @@ def build_handler(db_path: str, projects_dir: str):
                 return self._do_get()
             except sqlite3.OperationalError as e:
                 return _db_busy(self, e)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the browser navigated away before we finished answering
 
         def _do_get(self):
             url = urlparse(self.path)
