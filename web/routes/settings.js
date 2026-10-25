@@ -1,7 +1,12 @@
-import { api, state, $ } from '/web/app.js';
+import { api, state, $, fmt } from '/web/app.js';
+
+const esc = fmt.htmlSafe;
+
+// $ per million tokens: at least 2 decimals, up to 3 (0.125 stays 0.125)
+const rate = x => '$' + (+x.toFixed(3)).toFixed(Math.max(2, (String(+x.toFixed(3)).split('.')[1] || '').length));
 
 export default async function (root) {
-  const cur = await api('/api/plan');
+  const [cur, tg] = await Promise.all([api('/api/plan'), api('/api/pricing/targets')]);
   const plans = Object.entries(cur.pricing.plans);
   root.innerHTML = `
     <div class="card">
@@ -18,18 +23,34 @@ export default async function (root) {
 
       <hr class="divider">
 
-      <h3>Pricing table</h3>
-      <p class="muted" style="margin:0 0 12px">Edit <code>pricing.json</code> in the project root to change rates. Reload the page after editing.</p>
+      <h3>Equivalent models</h3>
+      <p class="muted" style="margin:0 0 12px">Each Claude class next to the model other vendors sell at a comparable level; these are what the what-if costs will use. Prices are $ per million tokens: input / output (cached input in brackets). <span class="muted">≈</span> marks figures I could not confirm on the vendor's own page.</p>
       <table>
-        <thead><tr><th>model</th><th class="num">input</th><th class="num">output</th><th class="num">cache read</th><th class="num">cache 5m</th><th class="num">cache 1h</th></tr></thead>
+        <thead><tr><th>class</th>${tg.vendors.map(v => `<th>${esc(v.label)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${tg.classes.map(c => `<tr><td><span class="badge ${esc(c.id)}">${esc(c.label)}</span></td>
+            ${tg.vendors.map(v => { const m = c.members[v.id]; return m ? `<td title="${esc(m.note || '')}">
+              <div class="mono">${esc(m.model)}${m.verified === false ? ' ≈' : ''}</div>
+              <div class="muted num" style="text-align:left">${rate(m.input)} / ${rate(m.output)} <span>(${rate(m.cache_read)})</span></div></td>` : '<td class="muted">none</td>'; }).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <p class="muted" style="margin:8px 0 16px;font-size:11px">${Object.entries(tg.sources).map(([k, s]) => `${esc(k)}: ${esc(s.url)} (checked ${esc(s.as_of)}${s.stale ? ', <b>stale</b>' : ''}${s.verified === false ? ', partly unverified' : ''})`).join(' · ')}</p>
+
+      <h3>Pricing table</h3>
+      <p class="muted" style="margin:0 0 12px">Rates come from <code>pricing.json</code>. Put your own in <code>~/.claude/token-dashboard.pricing.json</code> (or the file named by <code>TOKEN_DASHBOARD_PRICING</code>); its entries replace the same-named ones. Restart the dashboard after editing.</p>
+      <table>
+        <thead><tr><th>model</th><th>vendor</th><th class="num">input</th><th class="num">output</th><th class="num">cache read</th><th class="num">cache 5m</th><th class="num">cache 1h</th><th class="num">fast in / out</th></tr></thead>
         <tbody>
           ${Object.entries(cur.pricing.models).map(([k,v]) => `
-            <tr><td><span class="badge ${v.tier}">${k}</span></td>
-              <td class="num">$${v.input.toFixed(2)}</td>
-              <td class="num">$${v.output.toFixed(2)}</td>
-              <td class="num">$${v.cache_read.toFixed(2)}</td>
-              <td class="num">$${v.cache_create_5m.toFixed(2)}</td>
-              <td class="num">$${v.cache_create_1h.toFixed(2)}</td>
+            <tr><td><span class="badge ${v.class || v.tier || ''}">${esc(k)}</span></td>
+              <td class="muted">${esc(v.vendor || '')}</td>
+              <td class="num">${rate(v.input)}</td>
+              <td class="num">${rate(v.output)}</td>
+              <td class="num">${rate(v.cache_read)}</td>
+              <td class="num">${rate(v.cache_create_5m)}</td>
+              <td class="num">${rate(v.cache_create_1h)}</td>
+              <td class="num">${v.fast ? `${rate(v.fast.input)} / ${rate(v.fast.output)}` : ''}</td>
             </tr>`).join('')}
         </tbody>
       </table>

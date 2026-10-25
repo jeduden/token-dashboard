@@ -16,7 +16,9 @@ from .db import (
     tool_token_breakdown, recent_sessions, session_turns,
     daily_token_breakdown, model_breakdown, skill_breakdown,
 )
-from .pricing import load_pricing, cost_for, get_plan, set_plan
+from .pricing import cost_for, get_plan, set_plan
+from .rates import load_with_override
+from .pricing_targets import pricing_targets
 from .repos import repo_summary, annotate_projects
 from .tips import all_tips, dismiss_tip
 from .scanner import scan_dir
@@ -101,7 +103,7 @@ def _serve_static(handler, rel: str) -> None:
 
 
 def build_handler(db_path: str, projects_dir: str):
-    pricing = load_pricing(PRICING_JSON)
+    pricing = load_with_override(PRICING_JSON)
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -165,6 +167,8 @@ def build_handler(db_path: str, projects_dir: str):
                 if not sid:
                     return _send_json(self, {"error": "id is required"}, 400)
                 return _send_json(self, session_timeline(db_path, pricing, sid))
+            if path == "/api/pricing/targets":
+                return _send_json(self, pricing_targets(pricing))
             if path == "/api/session-subagents":
                 sid = qs.get("id", [""])[0]
                 if not sid:
