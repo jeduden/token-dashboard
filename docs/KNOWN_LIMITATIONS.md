@@ -88,3 +88,15 @@ Claude Code writes a `compact_boundary` record for every compaction. The scanner
 - The idle gap is the time from the thread's last assistant turn to the next user record (you returning, or a tool result for a mid-turn auto-compaction), or to the boundary when none intervenes. A `/compact` typed right after a pause therefore shows the pause, but a user record written by something other than a person counts the same.
 - "Compactions after an expired cache" uses the Cache tab's lifetimes (5 min, or 1 h after a 1h cache write). Its dollar figure is an upper-bound what-if, `sum(preTokens x (write rate - read rate))`, assuming the compaction call itself paid the cache-write rate and that you would have compacted right before leaving; transcripts do not record the summarizer call's usage, so it may be much lower or zero.
 - Existing databases need one full replay of the transcripts to pick up events from before the upgrade: the first start after upgrading re-reads every file once in the background (no data is deleted, existing tabs keep working, compactions appear as files are replayed, and tool-call ids shown in `#/costs/call/<id>` links change). Costs are `mixed` until it finishes.
+
+## What-if costs on other models are estimates
+
+The Compare tab, `/api/whatif` and every `alt_costs` field re-price the recorded token counts at another model's list price. They are not a prediction of what that model would have cost you.
+
+- **Same tokens.** Other vendors tokenize differently (the tokenizer factor is fixed at 1.0), and another model may answer with more or fewer output tokens, read files differently or take more turns. Treat differences under about 20% as noise.
+- **Caching.** Anthropic's 5-minute and 1-hour cache-write buckets are mapped onto the other vendor's cache-write prices (OpenAI's 30-minute and 12-hour writes). A vendor with no listed write price bills writes as input. Cache hit rates and expiry behaviour differ per vendor and are not modelled.
+- **Peers are a judgement.** Each Claude class (fable, opus, sonnet, haiku) is paired with one model per vendor in `pricing.json` (`classes`). Kimi has no small model, so Haiku-class usage is left out of its totals and reported as `alt_unpriced_tokens`; a partial total is lower than a full re-pricing.
+- **Unverified prices.** Entries marked `verified: false` (some Kimi figures) could not be confirmed on the vendor's own page; the UI marks them with ≈. A source older than 90 days is flagged stale in `/api/pricing/targets` and Settings.
+- **Modes.** Fast mode is priced for Claude when a turn recorded `speed: fast`; other vendors are priced at standard rates. Long-context bands are applied per request using the target model's own threshold. Batch discounts and `inference_geo` surcharges are not modelled.
+- **Not compared.** The Costs, Cache and Compactions views use the Anthropic cache model only and show no alternatives.
+- **Totals shift slightly.** With band and speed pricing the real totals can differ by a fraction of a percent from older versions (for example 0.07% on one large database).
