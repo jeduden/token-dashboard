@@ -1,5 +1,5 @@
 import { api, fmt, state } from '/web/app.js';
-import { withCompare, altLine } from '/web/whatif.js';
+import { withCompare, altLine, altNote } from '/web/whatif.js';
 import { barChart, donutChart, groupedBarChart, stackedBarChart } from '/web/charts.js';
 
 const RANGES = [
@@ -67,6 +67,7 @@ export default async function (root) {
       ${rangeTabs}
     </div>
 
+    ${altNote()}
     <div class="row cols-7">
       ${kpi('Sessions',     fmt.int(totals.sessions),       fmt.int(totals.sessions))}
       ${kpi('Turns',        fmt.int(totals.turns),          fmt.int(totals.turns))}

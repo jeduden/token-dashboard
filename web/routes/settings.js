@@ -24,7 +24,7 @@ export default async function (root) {
       <hr class="divider">
 
       <h3>Equivalent models</h3>
-      <p class="muted" style="margin:0 0 12px">Each Claude class next to the model other vendors sell at a comparable level; these are what the what-if costs will use. Prices are $ per million tokens: input / output (cached input in brackets). <span class="muted">≈</span> marks figures I could not confirm on the vendor's own page.</p>
+      <p class="muted" style="margin:0 0 12px">Each Claude class next to the model other vendors sell at a comparable level; these are what the Compare tab and the ≈ lines use. They are estimates: see the caveats on the <a href="#/compare">Compare</a> tab. Prices are $ per million tokens: input / output (cached input in brackets). <span class="muted">≈</span> marks figures could not be confirmed on the vendor's own page.</p>
       <table>
         <thead><tr><th>class</th>${tg.vendors.map(v => `<th>${esc(v.label)}</th>`).join('')}</tr></thead>
         <tbody>

@@ -1,5 +1,5 @@
 import { api, fmt } from '/web/app.js';
-import { withCompare, altLine } from '/web/whatif.js';
+import { withCompare, altLine, altNote } from '/web/whatif.js';
 import { timelineHtml, mountTimeline } from '/web/routes/session-charts.js';
 import { agentsHtml, mountAgents, agentLabels } from '/web/routes/session-agents.js';
 
@@ -20,6 +20,7 @@ async function renderList(root) {
       <p class="muted" style="font-size:12px;margin:0 0 6px">One row per session. <span style="color:#4A9EFF">main</span> = the agent you talk to,
         <span style="color:#7C5CFF">sub</span> = every subagent it started. Tokens are input + output (no cache); costs are estimates including cache.
         Prompts are your messages, not tool results.</p>
+      ${altNote()}
       <table>
         <thead><tr><th>started</th><th>project</th><th class="num">prompts</th>
           <th class="num">tokens main</th><th class="num">tokens sub</th>
@@ -84,7 +85,7 @@ async function renderSession(root, id) {
         <span>${turns.length} records</span>
         <span>${fmt.int(totalIn)} in · ${fmt.int(totalOut)} out · ${fmt.int(totalCacheRd)} cache rd · ${fmt.usd(totalCost)} est.</span>
       </div>
-      ${tl ? altLine(tl.summary) : ''}
+      ${tl ? altLine(tl.summary) + altNote() : ''}
     </div>
 
     <div style="margin-top:16px">${tl ? timelineHtml(tl) : '<div class="card"><p class="muted">Cost charts unavailable (/api/session-timeline failed). Restart the dashboard to pick up the latest server code.</p></div>'}</div>

@@ -1,6 +1,6 @@
 import { api, fmt, $, $$ } from '/web/app.js';
 import { stackedBarChart } from '/web/charts.js';
-import { withCompare, altLine } from '/web/whatif.js';
+import { withCompare, altLine, altNote } from '/web/whatif.js';
 
 const esc = fmt.htmlSafe;
 const RANGES = [
@@ -88,6 +88,7 @@ export default async function (root) {
 
   root.innerHTML = `
     <div class="card">
+      ${altNote()}
       <div class="flex" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
         <h2 style="margin:0">Recent activity</h2>
         <span class="muted" style="font-size:12px">${fmt.int(totals.messages)} messages · ${fmt.compact(totals.tokens)} tokens · ${fmt.usd(totals.cost_usd)} · ${sessions.length} sessions · UTC</span>

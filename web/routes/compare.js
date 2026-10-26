@@ -1,5 +1,5 @@
 import { api, fmt } from '/web/app.js';
-import { VENDORS } from '/web/whatif.js';
+import { VENDORS, caveatsHtml } from '/web/whatif.js';
 
 const esc = fmt.htmlSafe;
 const GROUPS = [['total', 'total'], ['day', 'day'], ['project', 'project'], ['session', 'session'], ['model', 'model']];
@@ -39,7 +39,8 @@ export default async function (root) {
       <span class="muted" style="font-size:12px">the same tokens at other models' list prices · estimates</span>
       <div class="spacer"></div>${tab('group', GROUPS, group)}${tab('range', RANGES.map(r => [r[0], r[0]]), range)}
     </div>
-    <div class="card">
+    ${caveatsHtml()}
+    <div class="card" style="margin-top:16px">
       <p class="muted" style="margin:0 0 10px;font-size:12px">Every figure re-prices the recorded token counts; it does not predict what another model would have used.
         Tokenizers, caching behaviour and answer length differ, so treat differences under ~20% as noise. Cache writes use each vendor's own cache-write price.
         <b>*</b> = some tokens have no equivalent model on that vendor and are left out of its figure.</p>

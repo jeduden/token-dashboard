@@ -73,3 +73,24 @@ export function mountCompareSelector(host) {
   document.addEventListener('click', () => { const m = wrap.querySelector('.cmp-menu'); if (m) m.hidden = true; });
   paint();
 }
+
+export const CAVEATS = [
+  ['Same tokens, not same behaviour', 'Every figure re-prices the recorded token counts. Another model may tokenize differently (assumed 1.0×), answer longer or shorter, or need more turns. Differences under ~20% are noise.'],
+  ['Caching', 'Anthropic\'s 5-minute and 1-hour cache writes are mapped onto the other vendor\'s cache-write prices; a vendor with no write price bills writes as input. Hit rates and expiry are not modelled.'],
+  ['Peers are a judgement', 'Each Claude class is paired with one model per vendor. Kimi has no small model, so Haiku-class usage is left out of its total (marked *), which makes that total lower than a full re-pricing.'],
+  ['Unconfirmed prices', 'Figures marked ≈ could not be confirmed on the vendor\'s own page. Sources older than 90 days are marked stale.'],
+  ['Modes', 'Fast mode is priced for Claude where a turn recorded it; other vendors use standard rates. Long-context tiers use each model\'s own threshold. Batch discounts and regional surcharges are not modelled.'],
+  ['Not compared', 'The Costs, Cache and Compactions tabs use the Anthropic cache model and show no alternatives.'],
+];
+
+// Full list, always visible (Compare tab).
+export function caveatsHtml() {
+  return `<div class="card caveats"><h3 style="margin-top:0">Read this before trusting the numbers</h3><ul>${
+    CAVEATS.map(([h, t]) => `<li><b>${esc(h)}.</b> ${esc(t)}</li>`).join('')}</ul></div>`;
+}
+
+// One visible line for pages that show ≈ lines under their costs; '' when comparing is off.
+export function altNote(targets = getTargets()) {
+  if (!targets.length) return '';
+  return `<div class="alt-note muted">≈ lines are estimates: your token counts at the other vendor's list prices. Tokenizers, caching and answer length differ; * = some tokens have no equivalent model. <a href="#/compare">Caveats →</a></div>`;
+}

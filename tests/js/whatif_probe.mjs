@@ -11,4 +11,6 @@ out.url = [w.withCompare('/api/x'), w.withCompare('/api/x?a=1')];
 out.line = w.altLine({ alt_costs: { openai: 12.345, kimi: null }, alt_unpriced_tokens: { openai: 0, kimi: 5000 } });
 out.partial = w.altLine({ alt_costs: { openai: 3, kimi: 2 }, alt_unpriced_tokens: { openai: 0, kimi: 5000 } });
 out.none = w.altLine({});
+out.note = w.altNote(); out.caveats = w.caveatsHtml();
+w.setTargets([]); out.noteOff = w.altNote();
 console.log(JSON.stringify(out));

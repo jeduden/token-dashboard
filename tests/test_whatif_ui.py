@@ -35,6 +35,13 @@ class WhatIfHelperTests(unittest.TestCase):
         self.assertIn("5,000 tokens", line)
         self.assertIn("≈$2.00* Kimi", self.out["partial"])
 
+    def test_caveats_are_shown_in_the_ui(self):
+        self.assertIn("estimates", self.out["note"])
+        self.assertIn("#/compare", self.out["note"])
+        self.assertEqual(self.out["noteOff"], "")
+        for needle in ("Caching", "Peers are a judgement", "Unconfirmed prices", "Not compared"):
+            self.assertIn(needle, self.out["caveats"])
+
 
 if __name__ == "__main__":
     unittest.main()
