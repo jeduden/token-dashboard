@@ -48,6 +48,15 @@ def combine(results: list, targets: list) -> dict:
     return {"alt_costs": alt, "alt_unpriced_tokens": unpriced, "alt_priced_tokens": priced}
 
 
+def row_alts(pricer: Pricer, targets: list, model: Optional[str], usage) -> dict:
+    """{target: usd or None} for one request. None when the model has no peer on that target."""
+    out = {}
+    for t in targets:
+        m = pricer.resolve(model, t) if model else None
+        out[t] = None if m is None else pricer.price(m, usage, band=None)["usd"]
+    return out
+
+
 class WhatIf:
     def __init__(self, pricer: Pricer, targets: list):
         self.pricer, self.targets = pricer, list(targets)

@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 
 from .db import connect, best_project_name, _range_clause
+from .pricer import Pricer
 from .pricing import cost_for
+from .whatif import WhatIf, parse_targets, row_alts
 
 SERIES_TURNS = 30  # per-session sparkline length (assistant turns)
 
@@ -29,7 +31,11 @@ def _tool_names(raw) -> list:
         return []
 
 
-def recent_feed(db_path, pricing, limit=100, since=None, until=None, sessions=None) -> dict:
+def recent_feed(db_path, pricing, limit=100, since=None, until=None, sessions=None, targets=None) -> dict:
+    """With `targets`, each message and each session summary also carries `alt_costs`."""
+    targets = parse_targets(pricing, targets)
+    pricer = Pricer(pricing)
+    w = WhatIf(pricer, targets)
     rng, args = _range_clause(since, until)
     sess_sql, sess_args = "", []
     if sessions:
@@ -70,12 +76,20 @@ def recent_feed(db_path, pricing, limit=100, since=None, until=None, sessions=No
             "context_tokens": ctx, "cost_usd": usd,
             "text": r["prompt_text"], "tools": _tool_names(r["tool_calls_json"]),
         }
+        if targets:
+            m["alt_costs"] = row_alts(pricer, targets, r["model"], r) if is_asst and r["model"] else dict.fromkeys(targets)
+            if is_asst and r["model"]:
+                w.add(r["model"], r, pricer.band_of(_context(r)), r["speed"], key=r["session_id"])
         messages.append(m)
         by_session.setdefault(r["session_id"], []).append(m)
 
     summaries = [_summarise(sid, msgs) for sid, msgs in by_session.items()]
+    if targets:
+        for s in summaries:
+            res = w.result(s["session_id"])
+            s["alt_costs"], s["alt_unpriced_tokens"] = res["alt_costs"], res["alt_unpriced_tokens"]
     summaries.sort(key=lambda s: s["last"], reverse=True)
-    return {"messages": messages, "sessions": summaries}
+    return {"targets": targets, "messages": messages, "sessions": summaries}
 
 
 def _summarise(sid: str, newest_first: list) -> dict:

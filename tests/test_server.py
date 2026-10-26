@@ -85,6 +85,12 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(body["targets"], ["openai"])
         self.assertTrue(all("alt_costs" in b for b in body["buckets"]))
 
+    def test_compare_on_per_row_endpoints(self):
+        self.assertEqual(json.loads(self._get("/api/recent?compare=openai,kimi"))["targets"], ["openai", "kimi"])
+        self.assertEqual(json.loads(self._get("/api/session-timeline?id=s&compare=openai"))["targets"], ["openai"])
+        self.assertIsInstance(json.loads(self._get("/api/sessions/s?compare=openai")), list)
+        self.assertIsInstance(json.loads(self._get("/api/session-subagents?id=s&compare=kimi")), list)
+
     def test_no_compare_means_no_alt_costs(self):
         self.assertNotIn("alt_costs", json.loads(self._get("/api/overview")))
 

@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 
 from .db import connect, best_project_name
+from .pricer import Pricer
 from .pricing import cost_for
+from .whatif import WhatIf, parse_targets, row_alts
 
 KINDS = ("text", "tools", "subagent")
 MAX_CAUSES = 8
@@ -23,7 +25,11 @@ def _tools(raw) -> list:
         return []
 
 
-def session_timeline(db_path, pricing, session_id: str) -> dict:
+def session_timeline(db_path, pricing, session_id: str, targets=None) -> dict:
+    """With `targets`, each turn, the summary and each model's summary also carry `alt_costs`."""
+    targets = parse_targets(pricing, targets)
+    pricer = Pricer(pricing)
+    w = WhatIf(pricer, targets)
     with connect(db_path) as c:
         rows = [dict(r) for r in c.execute(
             """SELECT uuid, agent_id, type, timestamp, model, is_sidechain, input_tokens, output_tokens,
@@ -61,6 +67,14 @@ def session_timeline(db_path, pricing, session_id: str) -> dict:
                  "cache_read": bd.get("cache_read", 0),
                  "cache_create": bd.get("cache_create_5m", 0) + bd.get("cache_create_1h", 0)}
         usd = cf["usd"] or 0.0
+        alts = None
+        if targets:
+            alts = row_alts(pricer, targets, r["model"], r) if r["model"] else dict.fromkeys(targets)
+            if r["model"]:
+                for key in (None, ("m", r["model"])):
+                    w.add(r["model"], r, pricer.band_of(r["input_tokens"] + r["cache_read_tokens"]
+                                                        + r["cache_create_5m_tokens"] + r["cache_create_1h_tokens"]),
+                          r["speed"], key=("all" if key is None else key))
         cum += usd
         tools = _tools(r["tool_calls_json"])
         kind = "subagent" if r["is_sidechain"] else ("tools" if tools else "text")
@@ -97,15 +111,21 @@ def session_timeline(db_path, pricing, session_id: str) -> dict:
             "context_tokens": ctx, "cost_usd": round(usd, 6),
             "cost_split": {k: round(v, 6) for k, v in split.items()},
             "cum_cost_usd": round(cum, 6),
+            **({"alt_costs": alts} if targets else {}),
         })
 
+    if targets:
+        for m, v in by_model.items():
+            v["alt_costs"] = w.result(("m", m))["alt_costs"] if m != "unknown" else dict.fromkeys(targets)
+    total = w.result("all") if targets else None
     rnd = lambda d: {k: (round(v, 6) if isinstance(v, float) else v) for k, v in d.items()}
     return {
         "session_id": session_id,
         "project_name": best_project_name(cwds, slug) if rows else "",
-        "turns": turns, "prompts": prompts, "compactions": comps,
+        "targets": targets, "turns": turns, "prompts": prompts, "compactions": comps,
         "summary": {
             "cost_usd": round(cum, 6),
+            **({"alt_costs": total["alt_costs"], "alt_unpriced_tokens": total["alt_unpriced_tokens"]} if targets else {}),
             "by_token_type": {k: round(v, 6) for k, v in by_type.items()},
             "by_kind": {k: rnd(v) for k, v in by_kind.items()},
             "by_model": {k: rnd(v) for k, v in by_model.items()},

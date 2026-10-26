@@ -4,13 +4,20 @@ from __future__ import annotations
 from .db import connect
 from .pricer import Pricer, PROMPT_SQL
 from .pricing import cost_for
-from .whatif import WhatIf, combine
+from .whatif import WhatIf, combine, row_alts
 
 
-def add_turn_costs(turns: list, pricing: dict) -> list:
-    """Set `cost_usd` on each assistant row of `session_turns` (None for other rows)."""
+def add_turn_costs(turns: list, pricing: dict, targets=None) -> list:
+    """Set `cost_usd` on each assistant row of `session_turns` (None for other rows).
+
+    With `targets`, assistant rows also get `alt_costs`.
+    """
+    pricer = Pricer(pricing) if targets else None
     for t in turns:
-        t["cost_usd"] = cost_for(t["model"], t, pricing, per_request=True)["usd"] if t["type"] == "assistant" and t["model"] else None
+        priced = t["type"] == "assistant" and t["model"]
+        t["cost_usd"] = cost_for(t["model"], t, pricing, per_request=True)["usd"] if priced else None
+        if targets:
+            t["alt_costs"] = row_alts(pricer, targets, t["model"], t) if priced else dict.fromkeys(targets)
     return turns
 
 

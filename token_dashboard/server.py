@@ -171,7 +171,7 @@ def build_handler(db_path: str, projects_dir: str):
                 sid = qs.get("id", [""])[0]
                 if not sid:
                     return _send_json(self, {"error": "id is required"}, 400)
-                return _send_json(self, session_timeline(db_path, pricing, sid))
+                return _send_json(self, session_timeline(db_path, pricing, sid, targets))
             if path == "/api/pricing/targets":
                 return _send_json(self, pricing_targets(pricing))
             if path == "/api/whatif":
@@ -186,7 +186,7 @@ def build_handler(db_path: str, projects_dir: str):
                 sid = qs.get("id", [""])[0]
                 if not sid:
                     return _send_json(self, {"error": "id is required"}, 400)
-                return _send_json(self, session_subagents(db_path, pricing, sid))
+                return _send_json(self, session_subagents(db_path, pricing, sid, targets))
             if path == "/api/recent/buckets":
                 sids = [x for x in qs.get("sessions", [""])[0].split(",") if x]
                 try:
@@ -199,7 +199,7 @@ def build_handler(db_path: str, projects_dir: str):
                 sids = [x for x in qs.get("sessions", [""])[0].split(",") if x]
                 return _send_json(self, recent_feed(
                     db_path, pricing, limit=_clamp_limit(qs.get("limit", ["100"])[0], 100),
-                    since=since, until=until, sessions=sids or None))
+                    since=since, until=until, sessions=sids or None, targets=targets))
             if path == "/api/daily":
                 return _send_json(self, daily_token_breakdown(db_path, since, until))
             if path == "/api/skills":
@@ -227,7 +227,7 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, rows)
             if path.startswith("/api/sessions/"):
                 sid = path.rsplit("/", 1)[1]
-                return _send_json(self, add_turn_costs(session_turns(db_path, sid), pricing))
+                return _send_json(self, add_turn_costs(session_turns(db_path, sid), pricing, targets))
             if path == "/api/tips":
                 return _send_json(self, all_tips(db_path))
             if path == "/api/skill-costs/detail":

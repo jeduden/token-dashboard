@@ -11,7 +11,9 @@ import json
 import re
 
 from .db import connect
+from .pricer import Pricer
 from .pricing import cost_for
+from .whatif import WhatIf, parse_targets
 
 NAMED_ID = re.compile(r"^a?(.+?)-[0-9a-f]{12,}$")
 PROMPT_HEAD = 300
@@ -29,7 +31,11 @@ def _label(spawn, agent_id: str, first_prompt) -> str:
     return "agent " + agent_id[:8]
 
 
-def session_subagents(db_path, pricing, session_id: str) -> list:
+def session_subagents(db_path, pricing, session_id: str, targets=None) -> list:
+    """With `targets`, each agent also carries `alt_costs` and `alt_unpriced_tokens`."""
+    targets = parse_targets(pricing, targets)
+    pricer = Pricer(pricing)
+    w = WhatIf(pricer, targets)
     with connect(db_path) as c:
         rows = [dict(r) for r in c.execute(
             """SELECT agent_id, type, timestamp, model, input_tokens, output_tokens, cache_read_tokens,
@@ -58,6 +64,10 @@ def session_subagents(db_path, pricing, session_id: str) -> list:
         if r["model"]:
             a["models"].add(r["model"])
             a["cost_usd"] += cost_for(r["model"], r, pricing, per_request=True)["usd"] or 0.0
+            if targets:
+                w.add(r["model"], r, pricer.band_of(r["input_tokens"] + r["cache_read_tokens"]
+                                                    + r["cache_create_5m_tokens"] + r["cache_create_1h_tokens"]),
+                      r["speed"], key=r["agent_id"])
         try:
             for t in json.loads(r["tool_calls_json"] or "[]"):
                 if t.get("name"):
@@ -79,6 +89,8 @@ def session_subagents(db_path, pricing, session_id: str) -> list:
             "tokens": a["tokens"], "cost_usd": round(a["cost_usd"], 6), "context_max": a["context_max"],
             "models": sorted(a["models"]),
             "tools": sorted(a["tools"].items(), key=lambda kv: kv[1], reverse=True)[:5],
+            **({"alt_costs": w.result(aid)["alt_costs"], "alt_unpriced_tokens": w.result(aid)["alt_unpriced_tokens"]}
+               if targets else {}),
         })
     out.sort(key=lambda x: x["first"])
     return out
