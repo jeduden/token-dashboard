@@ -179,7 +179,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class FastTargetTests(unittest.TestCase):
+class _RealPricing(unittest.TestCase):
     def setUp(self):
         import json
         from pathlib import Path
@@ -188,6 +188,8 @@ class FastTargetTests(unittest.TestCase):
         self.p = normalize(json.loads((root / "pricing.json").read_text(encoding="utf-8")))
         self.pricer = Pricer(self.p)
 
+
+class FastTargetTests(_RealPricing):
     def test_fast_suffix_is_accepted_and_checked(self):
         self.assertEqual(parse_targets(self.p, "anthropic:fast,kimi:fast"), ["anthropic:fast", "kimi:fast"])
         with self.assertRaises(ValueError):
@@ -201,3 +203,19 @@ class FastTargetTests(unittest.TestCase):
     def test_kimi_fast_swaps_to_the_highspeed_model(self):
         self.assertEqual(self.pricer.resolve_for("claude-opus-5-5", "kimi:fast"), ("kimi-k3.1-pro-highspeed", None))
         self.assertEqual(self.pricer.resolve_for("claude-haiku-5-5", "kimi:fast"), (None, None))
+
+
+class OpenAIFastTests(_RealPricing):
+    """The shipped OpenAI Fast tier: 2x Standard, with its own long-context rates."""
+
+    def test_openai_fast_resolves_to_the_fast_rate_set(self):
+        self.assertEqual(self.pricer.resolve_for("claude-opus-5-5", "openai:fast"), ("gpt-6.1-sol", "fast"))
+        self.assertEqual(self.pricer.resolve_for("claude-haiku-5-5", "openai:fast"), ("gpt-6-luna", "fast"))
+
+    def test_fast_rates_and_long_context(self):
+        r = self.pricer.rates("gpt-6.1-sol", 0, "fast")
+        self.assertEqual((r["input"], r["output"], r["cache_read"], r["cache_create_5m"], r["cache_create_1h"]), (4, 20, 0.2, 5, 10))
+        r = self.pricer.rates("gpt-6.1-sol", 2, "fast")
+        self.assertEqual((r["input"], r["output"], r["cache_read"]), (8, 30, 0.4))
+        self.assertEqual(self.pricer.rates("gpt-6.1-sol", 2, None)["output"], 15)
+        self.assertEqual(self.pricer.rates("claude-opus-5-5", 0, "fast")["output"], 40)

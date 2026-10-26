@@ -2,7 +2,8 @@
 
 Rates are $ per million tokens. For one model the Pricer picks, in order:
 
-* the `fast` rate set when the turn ran in fast mode and the model has one;
+* the `fast` rate set when the turn ran in fast mode and the model has one (a fast set may carry its
+  own `long_context`);
 * the `long_context` rate set when the request's prompt was larger than the entry's
   threshold (a "band" says how many of the table's thresholds the prompt exceeded);
 * the standard rates.
@@ -40,9 +41,9 @@ def speed_of(usage) -> Optional[str]:
 class Pricer:
     def __init__(self, pricing: dict):
         self.pricing = pricing
-        self.thresholds = sorted({m["long_context"]["above_prompt_tokens"]
-                                  for m in pricing["models"].values()
-                                  if isinstance(m.get("long_context"), dict)})
+        sets = [s for m in pricing["models"].values() for s in (m, m.get("fast")) if isinstance(s, dict)]
+        self.thresholds = sorted({s["long_context"]["above_prompt_tokens"]
+                                  for s in sets if isinstance(s.get("long_context"), dict)})
         self._memo: dict = {}
 
     def band_of(self, prompt: int) -> int:
@@ -69,6 +70,9 @@ class Pricer:
         use = entry
         if speed == "fast" and isinstance(entry.get("fast"), dict):
             use = entry["fast"]
+            lc = use.get("long_context")
+            if isinstance(lc, dict) and band > self.thresholds.index(lc["above_prompt_tokens"]):
+                use = lc
         else:
             lc = entry.get("long_context")
             if isinstance(lc, dict) and band > self.thresholds.index(lc["above_prompt_tokens"]):
