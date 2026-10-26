@@ -66,6 +66,8 @@ def normalize(pricing: dict) -> dict:
         _rate_set(f"models.{name}", e)
         if isinstance(e.get("fast"), dict):
             _rate_set(f"models.{name}.fast", e["fast"])
+        if e.get("fast_model") is not None and e["fast_model"] not in p["models"]:
+            raise ValueError(f"models.{name}: unknown fast_model {e['fast_model']!r}")
         lc = e.get("long_context")
         if isinstance(lc, dict):
             if not isinstance(lc.get("above_prompt_tokens"), int):

@@ -51,9 +51,9 @@ class ParseTargetsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_targets(PRICING, bad)
 
-    def test_rejects_more_than_four(self):
+    def test_rejects_more_than_six(self):
         with self.assertRaises(ValueError):
-            parse_targets(PRICING, "openai,kimi,anthropic,model:o-mid,model:o-small")
+            parse_targets(PRICING, "openai,kimi,anthropic,model:o-mid,model:o-small,openai:fast,kimi:fast")
 
 
 class PricerHelperTests(unittest.TestCase):
@@ -177,3 +177,27 @@ class ReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FastTargetTests(unittest.TestCase):
+    def setUp(self):
+        import json
+        from pathlib import Path
+        from token_dashboard.rates import normalize
+        root = Path(__file__).resolve().parent.parent
+        self.p = normalize(json.loads((root / "pricing.json").read_text(encoding="utf-8")))
+        self.pricer = Pricer(self.p)
+
+    def test_fast_suffix_is_accepted_and_checked(self):
+        self.assertEqual(parse_targets(self.p, "anthropic:fast,kimi:fast"), ["anthropic:fast", "kimi:fast"])
+        with self.assertRaises(ValueError):
+            parse_targets(self.p, "nobody:fast")
+
+    def test_claude_fast_uses_fast_rates_only_where_listed(self):
+        self.assertEqual(self.pricer.resolve_for("claude-opus-5-5", "anthropic:fast"), ("claude-opus-5-5", "fast"))
+        self.assertEqual(self.pricer.resolve_for("claude-sonnet-5-5", "anthropic:fast"), ("claude-sonnet-5-5", None))
+        self.assertEqual(self.pricer.resolve_for("claude-opus-5-5", "anthropic"), ("claude-opus-5-5", None))
+
+    def test_kimi_fast_swaps_to_the_highspeed_model(self):
+        self.assertEqual(self.pricer.resolve_for("claude-opus-5-5", "kimi:fast"), ("kimi-k3.1-pro-highspeed", None))
+        self.assertEqual(self.pricer.resolve_for("claude-haiku-5-5", "kimi:fast"), (None, None))

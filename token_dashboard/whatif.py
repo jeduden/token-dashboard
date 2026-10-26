@@ -6,9 +6,9 @@ result is read, so callers never loop over targets themselves.
 
 A target is a vendor id (`openai`, `kimi`, `anthropic`), which maps each source
 model to its class peer on that vendor, or `model:<id>`, which prices everything
-at one model. A source model whose class has no peer on the vendor (Kimi has no
+at one model. Either takes a `:fast` suffix: price at the peer's fast tier where it has one. A source model whose class has no peer on the vendor (Kimi has no
 small model) is left out of that target's cost and its tokens are reported in
-`alt_unpriced_tokens`. Other vendors have no fast mode: alternatives use standard rates.
+`alt_unpriced_tokens`. A target without `:fast` uses standard rates; a peer with no fast tier stays standard under `:fast` too.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Optional
 
 from .pricer import Pricer, USAGE_KEYS
 
-MAX_TARGETS = 4
+MAX_TARGETS = 6
 _BUCKET_KEYS = ("input", "output", "cache_read", "cache_create_5m", "cache_create_1h")
 
 
@@ -31,7 +31,8 @@ def parse_targets(pricing: dict, raw) -> list:
         raise ValueError(f"at most {MAX_TARGETS} comparison targets")
     vendors = {m.get("vendor") for m in pricing["models"].values()}
     for t in ids:
-        ok = t in vendors or (t.startswith("model:") and t[6:] in pricing["models"])
+        base = t[:-5] if t.endswith(":fast") else t
+        ok = base in vendors or (base.startswith("model:") and base[6:] in pricing["models"])
         if not ok:
             raise ValueError(f"unknown comparison target {t!r}")
     return ids
@@ -52,8 +53,8 @@ def row_alts(pricer: Pricer, targets: list, model: Optional[str], usage) -> dict
     """{target: usd or None} for one request. None when the model has no peer on that target."""
     out = {}
     for t in targets:
-        m = pricer.resolve(model, t) if model else None
-        out[t] = None if m is None else pricer.price(m, usage, band=None)["usd"]
+        m, speed = pricer.resolve_for(model, t) if model else (None, None)
+        out[t] = None if m is None else pricer.price(m, usage, band=None, speed=speed)["usd"]
     return out
 
 
@@ -90,13 +91,13 @@ class WhatIf:
                 for b, v in c["breakdown"].items():
                     by_bucket[b] += v
             for t in self.targets:
-                m = resolved[(model, t)] if (model, t) in resolved else resolved.setdefault(
-                    (model, t), self.pricer.resolve(model, t) if model else None)
+                m, sp = resolved[(model, t)] if (model, t) in resolved else resolved.setdefault(
+                    (model, t), self.pricer.resolve_for(model, t) if model else (None, None))
                 if m is None:
                     unpriced[t] += n
                     continue
                 priced[t] += n
-                alt[t] += self.pricer.price(m, s, band, None)["usd"] or 0.0
+                alt[t] += self.pricer.price(m, s, band, sp)["usd"] or 0.0
         return {
             "cost_usd": round(actual, 6), "estimated": estimated, "tokens": tokens,
             "by_bucket": {b: round(v, 6) for b, v in by_bucket.items()},

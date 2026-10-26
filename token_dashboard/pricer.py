@@ -82,12 +82,30 @@ class Pricer:
         return (e or {}).get("class") or tier_from_name(model)
 
     def resolve(self, model: str, target: str) -> Optional[str]:
-        """The model that stands in for `model` on `target` (a vendor id, or `model:<id>`), or None."""
+        """The model that stands in for `model` on `target`, or None. See `resolve_for`."""
+        return self.resolve_for(model, target)[0]
+
+    def resolve_for(self, model: str, target: str) -> tuple:
+        """(model id, speed) pricing `model` on `target`.
+
+        A target is a vendor id, `model:<id>`, or either with a `:fast` suffix. `:fast` uses the
+        peer's `fast_model` (a separate high-speed model) or its `fast` rate set; a peer with
+        neither stays at standard rates. Returns (None, None) when there is no peer.
+        """
         models = self.pricing["models"]
-        if target.startswith("model:"):
-            return target[6:] if target[6:] in models else None
-        cls = self.pricing.get("classes", {}).get(self.class_of(model) or "", {})
-        return cls.get(target)
+        fast = target.endswith(":fast")
+        base = target[:-5] if fast else target
+        if base.startswith("model:"):
+            mid = base[6:] if base[6:] in models else None
+        else:
+            cls = self.pricing.get("classes", {}).get(self.class_of(model) or "", {})
+            mid = cls.get(base)
+        if mid is None or not fast:
+            return mid, None
+        entry = models[mid]
+        if entry.get("fast_model"):
+            return entry["fast_model"], None
+        return mid, ("fast" if isinstance(entry.get("fast"), dict) else None)
 
     def band_sql(self, prompt_expr: str) -> tuple:
         """(CASE expression, params) yielding the long-context band of a request's prompt size."""

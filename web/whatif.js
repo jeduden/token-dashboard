@@ -6,6 +6,8 @@ export const VENDORS = [
   { id: 'anthropic', label: 'Claude lineup' },
   { id: 'openai',    label: 'OpenAI' },
   { id: 'kimi',      label: 'Kimi' },
+  { id: 'anthropic:fast', label: 'Claude fast' },
+  { id: 'kimi:fast',      label: 'Kimi highspeed' },
 ];
 const label = id => (VENDORS.find(v => v.id === id) || { label: id.replace(/^model:/, '') }).label;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -79,7 +81,7 @@ export const CAVEATS = [
   ['Caching', 'Anthropic\'s 5-minute and 1-hour cache writes are mapped onto the other vendor\'s cache-write prices; a vendor with no write price bills writes as input. Hit rates and expiry are not modelled.'],
   ['Peers are a judgement', 'Each Claude class is paired with one model per vendor. Kimi has no small model, so Haiku-class usage is left out of its total (marked *), which makes that total lower than a full re-pricing.'],
   ['Unconfirmed prices', 'Figures marked ≈ could not be confirmed on the vendor\'s own page. Sources older than 90 days are marked stale.'],
-  ['Modes', 'Fast mode is priced for Claude where a turn recorded it; other vendors use standard rates. Long-context tiers use each model\'s own threshold. Batch discounts and regional surcharges are not modelled.'],
+  ['Modes', 'Your real cost uses fast mode where a turn recorded it. "Claude fast" and "Kimi highspeed" price every request at that fast tier; peers with no fast tier (all Haiku, OpenAI) stay at standard rates, and Kimi highspeed is a separate, pricier model. Long-context tiers use each model\'s own threshold. Batch discounts and regional surcharges are not modelled.'],
   ['Not compared', 'The Costs, Cache and Compactions tabs use the Anthropic cache model and show no alternatives.'],
 ];
 
