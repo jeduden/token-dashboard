@@ -1,5 +1,6 @@
 import { api, fmt, $, $$ } from '/web/app.js';
 import { stackedBarChart } from '/web/charts.js';
+import { withCompare, altLine } from '/web/whatif.js';
 
 const esc = fmt.htmlSafe;
 const RANGES = [
@@ -61,7 +62,7 @@ export default async function (root) {
   if (p.sel.length) q.set('sessions', p.sel.join(','));
 
   let data;
-  try { data = await api('/api/recent/buckets?' + q.toString()); }
+  try { data = await api(withCompare('/api/recent/buckets?' + q.toString())); }
   catch (e) {
     root.innerHTML = `<div class="card"><h2>Recent</h2><p class="muted">${esc(String(e.message))}</p>
       <p><a href="#/recent?range=${p.range.key}&bucket=day">Show per day instead</a></p></div>`;
@@ -113,7 +114,7 @@ export default async function (root) {
               <td class="mono">${esc(b.t.replace('T', ' '))}${p.bucket === 'hour' ? ':00' : ''}</td>
               <td class="num">${fmt.int(b.messages)}</td>
               <td class="num">${fmt.compact(b.tokens)}</td>
-              <td class="num">${fmt.usd(b.cost_usd)}</td>
+              <td class="num">${fmt.usd(b.cost_usd)}${altLine(b)}</td>
               <td class="num">${fmt.int(Object.keys(b.sessions).length)}</td>
               <td class="mono"><a href="#/sessions/${encodeURIComponent(id)}">${esc(bs ? label(bs) : id.slice(0, 8))}</a> <span class="muted">${fmt.usd(v.cost_usd)}</span></td>
             </tr>`;
@@ -137,7 +138,7 @@ export default async function (root) {
               <td class="mono">${esc(s.last.replace('T', ' '))}</td>
               <td class="num">${fmt.int(s.messages)}</td>
               <td class="num">${fmt.compact(s.tokens)}</td>
-              <td class="num">${fmt.usd(s.cost_usd)}</td>
+              <td class="num">${fmt.usd(s.cost_usd)}${altLine(s)}</td>
               <td>${spark(buckets.map(b => (b.sessions[s.session_id] ? m.get(b.sessions[s.session_id]) : 0)))}</td>
             </tr>`).join('')}
         </tbody>
@@ -170,7 +171,7 @@ export default async function (root) {
   if (p.at) { const w = bucketWindow(p.at, p.bucket); fq.set('since', w.since); fq.set('until', w.until); }
   else if (p.range.hours) fq.set('since', q.get('since'));
   if (p.sel.length) fq.set('sessions', p.sel.join(','));
-  const feed = (await api('/api/recent?' + fq.toString())).messages;
+  const feed = (await api(withCompare('/api/recent?' + fq.toString()))).messages;
   $('#feed-card', root).innerHTML = `
     <h3>Messages ${p.at ? `in ${esc(p.at.replace('T', ' '))}${p.bucket === 'hour' ? ':00' : ''} <a href="#" id="clear-at" class="muted" style="font-size:12px">clear</a>` : '(newest 100)'}</h3>
     <table>
@@ -185,7 +186,7 @@ export default async function (root) {
           <td class="blur-sensitive">${esc(x.text ? fmt.short(x.text, 110) : (x.tools || []).join(' · '))}</td>
           <td class="num">${x.context_tokens == null ? '' : fmt.compact(x.context_tokens)}</td>
           <td class="num">${x.type === 'assistant' ? fmt.int(x.output_tokens) : ''}</td>
-          <td class="num">${x.cost_usd == null ? '' : fmt.usd4(x.cost_usd)}</td>
+          <td class="num">${x.cost_usd == null ? '' : fmt.usd4(x.cost_usd)}${altLine(x)}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;

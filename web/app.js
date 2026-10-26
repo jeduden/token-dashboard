@@ -37,6 +37,7 @@ const ROUTES = {
   '/prompts':  () => import('/web/routes/prompts.js'),
   '/sessions': () => import('/web/routes/sessions.js'),
   '/recent':  () => import('/web/routes/recent.js'),
+  '/compare':  () => import('/web/routes/compare.js'),
   '/projects': () => import('/web/routes/projects.js'),
   '/skills':   () => import('/web/routes/skills.js'),
   '/costs':    () => import('/web/routes/costs.js'),
@@ -55,10 +56,12 @@ function buildTopbar() {
       ${Object.keys(ROUTES).map(p => `<a href="#${p}" data-route="${p}">${p.slice(1)}</a>`).join('')}
     </nav>
     <div class="spacer"></div>
+    <span id="compare-slot"></span>
     <span class="pill" id="plan-pill">api</span>
     <span class="pill muted" title="Cmd/Ctrl+B blurs sensitive text">⌘B blur</span>
   `;
   document.body.prepend(wrap);
+  import('/web/whatif.js').then(m => m.mountCompareSelector(wrap.querySelector('#compare-slot'))).catch(() => {});
 }
 
 function setActiveTab(routeKey) {

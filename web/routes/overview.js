@@ -1,4 +1,5 @@
 import { api, fmt, state } from '/web/app.js';
+import { withCompare, altLine } from '/web/whatif.js';
 import { barChart, donutChart, groupedBarChart, stackedBarChart } from '/web/charts.js';
 
 const RANGES = [
@@ -35,7 +36,7 @@ export default async function (root) {
   const since = sinceIso(range);
 
   const [totals, projects, sessions, tools, daily, byModel] = await Promise.all([
-    api(withSince('/api/overview', since)),
+    api(withCompare(withSince('/api/overview', since))),
     api(withSince('/api/projects', since)),
     api(withSince('/api/sessions?limit=10', since)),
     api(withSince('/api/tools', since)),
@@ -76,6 +77,7 @@ export default async function (root) {
       <div class="card kpi cost">
         <div class="label">Est. cost</div>
         <div class="value" title="${fmt.usd(totals.cost_usd)}">${fmt.usd(totals.cost_usd)}</div>
+        ${altLine(totals)}
         ${planSubtitle()}
       </div>
     </div>

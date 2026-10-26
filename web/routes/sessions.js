@@ -1,4 +1,5 @@
 import { api, fmt } from '/web/app.js';
+import { withCompare, altLine } from '/web/whatif.js';
 import { timelineHtml, mountTimeline } from '/web/routes/session-charts.js';
 import { agentsHtml, mountAgents, agentLabels } from '/web/routes/session-agents.js';
 
@@ -11,7 +12,7 @@ export default async function (root) {
 }
 
 async function renderList(root) {
-  const list = await api('/api/sessions?limit=100');
+  const list = await api(withCompare('/api/sessions?limit=100'));
   const maxCost = Math.max(0, ...list.map(s => s.cost_usd || 0));
   root.innerHTML = `
     <div class="card">
@@ -33,7 +34,7 @@ async function renderList(root) {
               <td class="num">${s.tokens_sub ? fmt.compact(s.tokens_sub) : '—'}</td>
               <td class="num">${fmt.usd(s.cost_main_usd)}</td>
               <td class="num">${s.cost_sub_usd ? fmt.usd(s.cost_sub_usd) : '—'}</td>
-              <td class="num">${fmt.usd(s.cost_usd)}</td>
+              <td class="num">${fmt.usd(s.cost_usd)}${altLine(s)}</td>
               <td style="min-width:140px">${splitBar(s.cost_main_usd, s.cost_sub_usd, maxCost)}</td>
               <td><a href="#/sessions/${encodeURIComponent(s.session_id)}" class="mono">${fmt.htmlSafe(s.session_id.slice(0,8))}…</a></td>
             </tr>`).join('')}
@@ -44,10 +45,10 @@ async function renderList(root) {
 
 async function renderSession(root, id) {
   const [turns, tl, agents] = await Promise.all([
-    api('/api/sessions/' + encodeURIComponent(id)),
+    api(withCompare('/api/sessions/' + encodeURIComponent(id))),
     // The charts are an extra: if this endpoint is missing (e.g. a dashboard started before it existed), still show the turns.
-    api('/api/session-timeline?id=' + encodeURIComponent(id)).catch(() => null),
-    api('/api/session-subagents?id=' + encodeURIComponent(id)).catch(() => []),
+    api(withCompare('/api/session-timeline?id=' + encodeURIComponent(id))).catch(() => null),
+    api(withCompare('/api/session-subagents?id=' + encodeURIComponent(id))).catch(() => []),
   ]);
   labels = agentLabels(agents);
   let totalIn = 0, totalOut = 0, totalCacheRd = 0, totalCost = 0;
@@ -83,6 +84,7 @@ async function renderSession(root, id) {
         <span>${turns.length} records</span>
         <span>${fmt.int(totalIn)} in · ${fmt.int(totalOut)} out · ${fmt.int(totalCacheRd)} cache rd · ${fmt.usd(totalCost)} est.</span>
       </div>
+      ${tl ? altLine(tl.summary) : ''}
     </div>
 
     <div style="margin-top:16px">${tl ? timelineHtml(tl) : '<div class="card"><p class="muted">Cost charts unavailable (/api/session-timeline failed). Restart the dashboard to pick up the latest server code.</p></div>'}</div>
@@ -154,7 +156,7 @@ function rowHtml(t, summary, run, max, ti, empty) {
     <td class="num">${fmt.int(t.output_tokens)}</td>
     <td class="num">${fmt.int(t.cache_read_tokens)}</td>
     <td class="num">${fmt.int((t.cache_create_5m_tokens || 0) + (t.cache_create_1h_tokens || 0))}</td>
-    <td class="num">${t.cost_usd == null ? '' : fmt.usd4(t.cost_usd)}</td>
+    <td class="num">${t.cost_usd == null ? '' : fmt.usd4(t.cost_usd)}${altLine(t)}</td>
     <td style="min-width:140px">${costBar(t.cost_usd, max)}</td>
   </tr>`;
 }

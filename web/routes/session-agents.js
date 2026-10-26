@@ -1,4 +1,5 @@
 import { fmt } from '/web/app.js';
+import { altLine } from '/web/whatif.js';
 
 const esc = fmt.htmlSafe;
 const hms = t => (t || '').slice(11, 19);
@@ -24,7 +25,7 @@ export function agentsHtml(agents) {
           <td class="num">${duration(a.first, a.last)}</td>
           <td class="num">${fmt.int(a.turns)}</td>
           <td class="muted" style="font-size:12px">${a.tools.map(([n, c]) => esc(n) + ' ×' + c).join(', ')}</td>
-          <td class="num">${fmt.usd(a.cost_usd)}</td>
+          <td class="num">${fmt.usd(a.cost_usd)}${altLine(a)}</td>
           <td style="min-width:120px">${a.cost_usd ? `<div title="${fmt.usd4(a.cost_usd)}" style="height:8px;border-radius:2px;background:#7C5CFF;width:${Math.max(2, 100 * a.cost_usd / max).toFixed(1)}%"></div>` : ''}</td>
         </tr>`).join('')}
       </tbody>

@@ -258,3 +258,17 @@ tr[data-skill-drill]:hover, tr[data-skill-drill]:focus-within { background: var(
 
 /* costs: single-call drill-down links */
 .card table a:focus-visible, .card > a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* compare (what-if) */
+.compare-sel { position: relative; }
+.compare-sel button.pill { cursor: pointer; }
+.cmp-menu {
+  position: absolute; right: 0; top: 34px; z-index: 40; min-width: 170px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px;
+}
+.cmp-menu[hidden] { display: none; }
+.cmp-menu a { font-size: 12px; margin-top: 4px; }
+.alt { font-size: 11px; line-height: 1.3; white-space: nowrap; }
+.good { color: var(--good, #3FB68B); }
+.bad { color: var(--bad, #e5675d); }
