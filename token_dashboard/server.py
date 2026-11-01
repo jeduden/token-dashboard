@@ -27,7 +27,8 @@ from .prompt_costs import prompt_costs
 from .agent_types import agent_types
 from .activity import activity
 from .findings import findings
-from . import findings_store
+from . import findings_store, findings_generate
+from .findings_facts import facts as findings_facts
 from .scanner import scan_dir
 from .scan_state import get_status, run_scan
 from .skills import cached_catalog
@@ -111,6 +112,7 @@ def _serve_static(handler, rel: str) -> None:
 
 def build_handler(db_path: str, projects_dir: str):
     pricing = load_with_override(PRICING_JSON)
+    job = findings_generate.Job()
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -159,6 +161,12 @@ def build_handler(db_path: str, projects_dir: str):
                     db_path, pricing, since, until, runs=_clamp_limit(qs.get("limit", ["25"])[0], 25)))
             if path == "/api/activity":
                 return _send_json(self, activity(db_path, since, until))
+            if path == "/api/findings/status":
+                return _send_json(self, {**job.status(), "available": findings_generate.executable() is not None})
+            if path == "/api/findings/preview":
+                days = _clamp_limit(qs.get("days", ["7"])[0], 7)
+                f = findings_facts(db_path, pricing, days, prompt_text=qs.get("prompts", ["0"])[0] == "1")
+                return _send_json(self, {"facts": f, "bytes": len(json.dumps(f)), "available": findings_generate.executable() is not None})
             if path == "/api/findings":
                 rules = findings(db_path, pricing, days=_clamp_limit(qs.get("days", ["7"])[0], 7))
                 written = findings_store.load(db_path)
@@ -322,6 +330,17 @@ def build_handler(db_path: str, projects_dir: str):
             if url.path == "/api/plan":
                 set_plan(db_path, body.get("plan", "api"))
                 return _send_json(self, {"ok": True})
+            if url.path == "/api/findings/generate":
+                if self.headers.get("X-Token-Dashboard") != "1":
+                    return _send_error(self, 403, "missing X-Token-Dashboard header")
+                if not body.get("confirm"):
+                    return _send_error(self, 400, "confirm must be true: this sends your numbers to Claude")
+                if findings_generate.executable() is None:
+                    return _send_error(self, 503, "the `claude` command was not found")
+                days = _clamp_limit(body.get("days", 7), 7)
+                if not job.start(db_path, pricing, days, bool(body.get("include_prompts"))):
+                    return _send_error(self, 409, "a generation is already running")
+                return _send_json(self, {"ok": True}, 202)
             if url.path == "/api/tips/dismiss":
                 dismiss_tip(db_path, body.get("key", ""))
                 return _send_json(self, {"ok": True})

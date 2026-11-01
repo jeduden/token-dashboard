@@ -77,8 +77,11 @@ def validate(doc) -> dict:
     if not isinstance(days, int) or not 1 <= days <= 3650:
         raise Invalid("window_days must be a whole number of days")
     since = doc.get("since")
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    keep = {k: meta[k] for k in ("model", "cost_usd", "prompts_included") if k in meta
+            and isinstance(meta[k], (str, int, float, bool)) and len(str(meta[k])) <= 80}
     return {"window_days": days, "since": since if isinstance(since, str) else None,
-            "findings": out_f, "recommendations": out_r}
+            "findings": out_f, "recommendations": out_r, **({"meta": keep} if keep else {})}
 
 
 def save(db_path, doc) -> dict:

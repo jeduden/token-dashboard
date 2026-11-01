@@ -1,7 +1,7 @@
 """The facts bundle Claude reads to write findings (`cli.py findings-data`).
 
 Everything is computed from the local database. Shares are of the window's estimated
-cost. Prompt text is cut to 200 characters. The bundle also carries the rule-based
+cost. Prompt text is cut to 200 characters, or left out with `prompt_text=False`. The bundle also carries the rule-based
 findings, so the writer can see what the fixed rules already say and go beyond them.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ def _share(x: float, total: float) -> float:
     return round(100 * x / total, 1) if total else 0.0
 
 
-def facts(db_path, pricing, days: int = 7, now: Optional[datetime] = None) -> dict:
+def facts(db_path, pricing, days: int = 7, now: Optional[datetime] = None, prompt_text: bool = True) -> dict:
     g = gather(db_path, pricing, days, now)
     total, agents = g["total"], g["agents"]
     now_dt = now or datetime.now(timezone.utc)
@@ -52,7 +52,8 @@ def facts(db_path, pricing, days: int = 7, now: Optional[datetime] = None) -> di
         "top_runs": [{"label": r["label"], "type": r["type"], "project": r["project_name"], "turns": r["turns"],
                       "cost_usd": r["cost_usd"], "share_pct": r["share_pct"], "peak_context_tokens": r["context_max"],
                       "session_id": r["session_id"]} for r in agents["runs"][:8]],
-        "top_prompts": [{"text": " ".join(p["prompt_text"].split())[:200], "kind": p["kind"] or "person",
+        "top_prompts": [{**({"text": " ".join(p["prompt_text"].split())[:200]} if prompt_text else {}),
+                         "kind": p["kind"] or "person",
                          "cost_usd": round(p["cost_usd"], 2), "cost_subagents_usd": round(p["cost_sub_usd"], 2),
                          "share_pct": _share(p["cost_usd"], total), "api_calls": p["api_calls"],
                          "subagent_calls": p["subagent_calls"], "session_id": p["session_id"]} for p in top_prompts],
@@ -68,5 +69,5 @@ def facts(db_path, pricing, days: int = 7, now: Optional[datetime] = None) -> di
     }
 
 
-def dumps(db_path, pricing, days: int = 7) -> str:
-    return json.dumps(facts(db_path, pricing, days), indent=1)
+def dumps(db_path, pricing, days: int = 7, prompt_text: bool = True) -> str:
+    return json.dumps(facts(db_path, pricing, days, prompt_text=prompt_text), indent=1)
