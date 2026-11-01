@@ -12,17 +12,21 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from .db import (
-    overview_totals, expensive_prompts, project_summary,
+    overview_totals, project_summary,
     tool_token_breakdown, recent_sessions, session_turns,
     daily_token_breakdown, model_breakdown, skill_breakdown,
 )
-from .pricing import cost_for, get_plan, set_plan
+from .pricing import get_plan, set_plan
 from .rates import load_with_override
 from .pricing_targets import pricing_targets
 from .whatif import parse_targets
 from .whatif_report import whatif_report
 from .repos import repo_summary, annotate_projects
 from .tips import all_tips, dismiss_tip
+from .prompt_costs import prompt_costs
+from .agent_types import agent_types
+from .activity import activity
+from .findings import findings
 from .scanner import scan_dir
 from .scan_state import get_status, run_scan
 from .skills import cached_catalog
@@ -146,16 +150,16 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, totals)
             if path == "/api/prompts":
                 limit = _clamp_limit(qs.get("limit", ["50"])[0], 50)
-                sort = qs.get("sort", ["tokens"])[0]
-                rows = expensive_prompts(db_path, limit=limit, sort=sort)
-                for r in rows:
-                    c = cost_for(r["model"], {
-                        "input_tokens": 0, "output_tokens": 0,
-                        "cache_read_tokens": r["cache_read_tokens"],
-                        "cache_create_5m_tokens": 0, "cache_create_1h_tokens": 0,
-                    }, pricing)
-                    r["estimated_cost_usd"] = c["usd"]
-                return _send_json(self, rows)
+                return _send_json(self, prompt_costs(
+                    db_path, pricing, limit=limit, sort=qs.get("sort", ["tokens"])[0],
+                    since=since, until=until, kind=qs.get("kind", [None])[0]))
+            if path == "/api/agent-types":
+                return _send_json(self, agent_types(
+                    db_path, pricing, since, until, runs=_clamp_limit(qs.get("limit", ["25"])[0], 25)))
+            if path == "/api/activity":
+                return _send_json(self, activity(db_path, since, until))
+            if path == "/api/findings":
+                return _send_json(self, findings(db_path, pricing, days=_clamp_limit(qs.get("days", ["7"])[0], 7)))
             if path == "/api/repos":
                 return _send_json(self, repo_summary(db_path, since, until))
             if path == "/api/projects":

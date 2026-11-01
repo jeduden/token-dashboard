@@ -274,3 +274,19 @@ tr[data-skill-drill]:hover, tr[data-skill-drill]:focus-within { background: var(
 .bad { color: var(--bad, #e5675d); }
 .caveats ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.5; }
 .alt-note { font-size: 11px; margin: 6px 0 10px; }
+
+/* activity timeline */
+.gantt { position: relative; }
+.gantt-axis { position: relative; height: 14px; margin-left: 190px; font-size: 10px; color: var(--muted); }
+.gantt-axis span { position: absolute; transform: translateX(-50%); }
+.gantt-row { display: flex; align-items: center; height: 18px; }
+.gantt-label { width: 190px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+.gantt-track { position: relative; flex: 1; height: 10px; background: var(--panel-2); border-radius: 3px; }
+.gantt-seg { position: absolute; top: 0; bottom: 0; border-radius: 3px; opacity: 0.9; }
+.finding { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; }
+.finding .fig { min-width: 64px; font-family: var(--mono); font-weight: 600; text-align: right; }
+.finding.bad .fig { color: var(--bad, #e5675d); }
+.finding.good .fig { color: var(--good, #3FB68B); }
+.finding.info .fig { color: var(--accent, #4A9EFF); }
+.callout { border-left: 3px solid var(--border); padding: 6px 10px; margin: 8px 0; font-size: 13px; }
+.badge.auto { color: var(--warn, #e0a030); border-color: rgba(224,160,48,0.3); background: rgba(224,160,48,0.08); }

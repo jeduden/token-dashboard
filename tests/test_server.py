@@ -59,6 +59,18 @@ class ServerTests(unittest.TestCase):
     def test_prompts_json(self):
         body = json.loads(self._get("/api/prompts?limit=10"))
         self.assertIsInstance(body, list)
+        for key in ("cost_usd", "cost_sub_usd", "subagent_calls", "kind"):
+            self.assertIn(key, body[0])
+        for q in ("sort=cost", "sort=recent", "kind=human", "kind=automated"):
+            self.assertIsInstance(json.loads(self._get("/api/prompts?" + q)), list)
+
+    def test_agent_types_activity_and_findings_json(self):
+        a = json.loads(self._get("/api/agent-types"))
+        self.assertEqual(set(a), {"totals", "by_type", "runs"})
+        act = json.loads(self._get("/api/activity"))
+        self.assertIn("peak_concurrent", act["overall"])
+        f = json.loads(self._get("/api/findings?days=3650"))
+        self.assertEqual(set(f), {"window_days", "since", "cost_usd", "findings", "recommendations"})
 
     def test_projects_json(self):
         body = json.loads(self._get("/api/projects"))
