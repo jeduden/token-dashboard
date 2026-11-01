@@ -20,7 +20,7 @@ Claude Code writes one JSONL file per session under `~/.claude/projects/<project
 
 ## Conventions
 
-- **Fully local.** No telemetry, no remote calls for user data. Tests run offline.
+- **Fully local.** No telemetry, and no remote call for user data without explicit consent. A feature that sends data anywhere must say what it sends and where, show the payload, and act only after the user confirms each time (the findings Generate button is the model). Tests run offline.
 - **Stdlib only.** No `pip install`. If a new feature needs a third-party library, argue for it first — we're willing to pay ergonomics cost to keep install friction at zero.
 - **SQLite parameter binding always.** Any f-string in a SQL statement must interpolate only internal, caller-controlled values (column names, placeholder lists). User-reachable values go through `?`.
 - **Small files with clear responsibilities.** If a file grows past ~400 lines or accretes three distinct concerns, split it.
