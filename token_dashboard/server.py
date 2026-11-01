@@ -27,6 +27,7 @@ from .prompt_costs import prompt_costs
 from .agent_types import agent_types
 from .activity import activity
 from .findings import findings
+from . import findings_store
 from .scanner import scan_dir
 from .scan_state import get_status, run_scan
 from .skills import cached_catalog
@@ -159,7 +160,9 @@ def build_handler(db_path: str, projects_dir: str):
             if path == "/api/activity":
                 return _send_json(self, activity(db_path, since, until))
             if path == "/api/findings":
-                return _send_json(self, findings(db_path, pricing, days=_clamp_limit(qs.get("days", ["7"])[0], 7)))
+                rules = findings(db_path, pricing, days=_clamp_limit(qs.get("days", ["7"])[0], 7))
+                written = findings_store.load(db_path)
+                return _send_json(self, {**(written or rules), "source": "claude" if written else "rules", "rules": rules})
             if path == "/api/repos":
                 return _send_json(self, repo_summary(db_path, since, until))
             if path == "/api/projects":

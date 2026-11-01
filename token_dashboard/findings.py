@@ -7,21 +7,16 @@ sent anywhere: the sentences are templates filled from the local database.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Optional
 
-from .activity import activity
-from .agent_types import agent_types
-from .db import connect, best_project_name, _range_clause
-from .pricer import Pricer, PROMPT_SQL
-from .prompt_costs import collect
+from .findings_data import gather, BREAK_TOKENS
 
 SUB_SHARE_BAD = 50.0      # subagents' share of cost, %
 RUN_SHARE_BAD = 10.0      # one subagent run's share, %
 PROJECT_SHARE_BAD = 40.0  # one project's share, %
 AUTOMATED_SHARE_BAD = 10.0
 CACHE_HIT_GOOD, CACHE_HIT_BAD = 90.0, 70.0
-BREAK_TOKENS = 100_000    # a turn that wrote or sent this much uncached context
 BREAK_MIN = 20
 
 
@@ -33,42 +28,9 @@ def _pct(x: float) -> str:
     return f"{x:.0f}%" if x >= 10 else f"{x:.1f}%"
 
 
-def _cache(db_path, since, until) -> dict:
-    rng, args = _range_clause(since, until)
-    sql = f"""
-      SELECT COALESCE(SUM(cache_read_tokens),0) AS read,
-             COALESCE(SUM({PROMPT_SQL}),0) AS prompt,
-             COALESCE(SUM(CASE WHEN input_tokens + cache_create_5m_tokens + cache_create_1h_tokens > ? THEN 1 ELSE 0 END),0) AS breaks,
-             COALESCE(SUM(CASE WHEN input_tokens + cache_create_5m_tokens + cache_create_1h_tokens > ? AND agent_id IS NOT NULL THEN 1 ELSE 0 END),0) AS sub_breaks
-        FROM messages WHERE type = 'assistant' {rng}
-    """
-    with connect(db_path) as c:
-        r = c.execute(sql, (BREAK_TOKENS, BREAK_TOKENS, *args)).fetchone()
-    return {"hit_pct": 100 * r["read"] / r["prompt"] if r["prompt"] else None,
-            "breaks": r["breaks"], "sub_breaks": r["sub_breaks"]}
-
-
-def _project_shares(db_path, pricing, prompts, since, until) -> list:
-    by: dict = {}
-    for p in prompts:
-        d = by.setdefault(p["project_slug"], {"cost": 0.0, "sessions": set()})
-        d["cost"] += p["cost_usd"]
-        d["sessions"].add(p["session_id"])
-    with connect(db_path) as c:
-        out = []
-        for slug, d in by.items():
-            cwds = [x["cwd"] for x in c.execute(
-                "SELECT DISTINCT cwd FROM messages WHERE project_slug=? AND cwd IS NOT NULL", (slug,))]
-            out.append({"name": best_project_name(cwds, slug), "cost": d["cost"], "sessions": len(d["sessions"])})
-    return sorted(out, key=lambda x: x["cost"], reverse=True)
-
-
 def findings(db_path, pricing, days: int = 7, now: Optional[datetime] = None) -> dict:
-    now = now or datetime.now(timezone.utc)
-    since = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
-    agents = agent_types(db_path, pricing, since, None)
-    prompts = [p for p in collect(db_path, pricing, since, None) if p["api_calls"]]
-    total = agents["totals"]["cost_usd"]
+    g = gather(db_path, pricing, days, now)
+    agents, prompts, total, since = g["agents"], g["prompts"], g["total"], g["since"]
     out = {"window_days": days, "since": since, "cost_usd": total, "findings": [], "recommendations": []}
     if total <= 0:
         return out
@@ -89,7 +51,7 @@ def findings(db_path, pricing, days: int = 7, now: Optional[datetime] = None) ->
                                 f"turns. Split work like this into shorter agents with a written handoff, so context resets "
                                 f"instead of being re-read on every turn.", "link": "#/agents"})
 
-    projects = _project_shares(db_path, pricing, prompts, since, None)
+    projects = g["projects"]
     if projects:
         top = projects[0]
         share = 100 * top["cost"] / total
@@ -114,7 +76,7 @@ def findings(db_path, pricing, days: int = 7, now: Optional[datetime] = None) ->
             rec.append({"text": "Idle notifications restart a full-context turn each time. Shut idle team agents down instead "
                                 "of leaving them waiting.", "link": "#/prompts?kind=automated"})
 
-    cache = _cache(db_path, since, None)
+    cache = g["cache"]
     if cache["breaks"] >= BREAK_MIN:
         f.append({"key": "cache-breaks", "kind": "info", "fig": f"{cache['breaks']:,}", "subject": "Cache breaks",
                   "text": f"turns sent or wrote over {BREAK_TOKENS // 1000}k uncached tokens, {cache['sub_breaks']:,} of them in subagents",
@@ -124,7 +86,7 @@ def findings(db_path, pricing, days: int = 7, now: Optional[datetime] = None) ->
         f.append({"key": "cache-hit", "kind": kind, "fig": f"{cache['hit_pct']:.1f}%", "subject": "Cache hit rate",
                   "text": "of prompt tokens were read from cache", "link": "#/cache"})
 
-    act = activity(db_path, since, None)["overall"]
+    act = g["activity"]["overall"]
     if act["sessions"]:
         f.append({"key": "activity", "kind": "info", "fig": f"{act['active_hours']:g} h", "subject": "Active time",
                   "text": f"in {act['sessions']} sessions over {act['wall_hours']:g} h of wall-clock time, "

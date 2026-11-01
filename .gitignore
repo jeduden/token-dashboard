@@ -6,5 +6,6 @@ out/
 node_modules/
 *.db
 .superpowers/
-.claude/
+.claude/*
+!.claude/skills/
 docs/superpowers/

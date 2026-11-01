@@ -70,12 +70,21 @@ class ServerTests(unittest.TestCase):
         act = json.loads(self._get("/api/activity"))
         self.assertIn("peak_concurrent", act["overall"])
         f = json.loads(self._get("/api/findings?days=3650"))
-        self.assertEqual(set(f), {"window_days", "since", "cost_usd", "findings", "recommendations"})
+        self.assertEqual(f["source"], "rules")
+        self.assertEqual(set(f["rules"]), {"window_days", "since", "cost_usd", "findings", "recommendations"})
 
     def test_projects_json(self):
         body = json.loads(self._get("/api/projects"))
         self.assertIsInstance(body, list)
         self.assertEqual(body[0]["project_slug"], "p")
+
+    def test_saved_findings_replace_the_rules_in_the_response(self):
+        from token_dashboard import findings_store
+        findings_store.save(self.db, {"findings": [{"kind": "info", "fig": "1", "subject": "x", "text": "y"}]})
+        f = json.loads(self._get("/api/findings"))
+        self.assertEqual((f["source"], f["findings"][0]["subject"]), ("claude", "x"))
+        self.assertEqual(f["rules"]["window_days"], 7)
+        self.assertIn("generated_at", f)
 
     def test_whatif_json(self):
         body = json.loads(self._get("/api/whatif?group=model&compare=openai,kimi"))

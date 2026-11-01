@@ -70,6 +70,37 @@ def cmd_tips(args):
         print(f"  {tip['body']}\n")
 
 
+def cmd_findings_data(args):
+    from token_dashboard.findings_facts import dumps
+    from token_dashboard.rates import load_with_override
+    db = _db_path(args)
+    init_db(db)
+    print(dumps(db, load_with_override(Path(__file__).resolve().parent / "pricing.json"), args.days))
+
+
+def cmd_findings_save(args):
+    import json
+    import sys
+    from token_dashboard import findings_store as fs
+    db = _db_path(args)
+    init_db(db)
+    try:
+        doc = json.load(sys.stdin if args.file == "-" else open(args.file, encoding="utf-8"))
+        saved = fs.save(db, doc)
+    except (OSError, ValueError) as e:      # fs.Invalid is a ValueError, as is bad JSON
+        raise SystemExit(f"Token Dashboard: findings not saved: {e}")
+    print(f"Token Dashboard: saved {len(saved['findings'])} findings and {len(saved['recommendations'])} "
+          f"recommendations for the last {saved['window_days']} days; see the Tips tab")
+
+
+def cmd_findings_clear(args):
+    from token_dashboard import findings_store as fs
+    db = _db_path(args)
+    init_db(db)
+    fs.clear(db)
+    print("Token Dashboard: cleared the saved findings")
+
+
 def cmd_dashboard(args):
     db = _db_path(args)
     init_db(db)
@@ -107,6 +138,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("today", parents=[sub_flags]).set_defaults(func=cmd_today)
     sub.add_parser("stats", parents=[sub_flags]).set_defaults(func=cmd_stats)
     sub.add_parser("tips",  parents=[sub_flags]).set_defaults(func=cmd_tips)
+    fd = sub.add_parser("findings-data", parents=[sub_flags], help="print the facts Claude reads to write findings")
+    fd.add_argument("--days", type=int, default=7)
+    fd.set_defaults(func=cmd_findings_data)
+    fsv = sub.add_parser("findings-save", parents=[sub_flags], help="store findings written as JSON (file or - for stdin)")
+    fsv.add_argument("file")
+    fsv.set_defaults(func=cmd_findings_save)
+    sub.add_parser("findings-clear", parents=[sub_flags]).set_defaults(func=cmd_findings_clear)
     d = sub.add_parser("dashboard", parents=[sub_flags])
     d.add_argument("--no-scan", action="store_true")
     d.add_argument("--no-open", action="store_true")
